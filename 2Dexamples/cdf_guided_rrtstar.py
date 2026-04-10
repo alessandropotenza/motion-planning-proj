@@ -25,8 +25,14 @@ SOFTMIN_BETA = 50.0
 
 CUR_PATH = os.path.dirname(os.path.realpath(__file__))
 SCENE_START_GOAL: Dict[str, Tuple[np.ndarray, np.ndarray]] = {
-    "scene_1": (np.array([-2.0, -1.0], dtype=np.float32), np.array([1.5, 1.2], dtype=np.float32)),
-    "scene_2": (np.array([-2.4, 0.2], dtype=np.float32), np.array([2.3, -0.8], dtype=np.float32)),
+    "scene_1": (np.array([-2.0, -1.0], dtype=np.float32), np.array([1.5,  1.2], dtype=np.float32)),
+    "scene_2": (np.array([-2.4,  0.2], dtype=np.float32), np.array([2.3, -0.8], dtype=np.float32)),
+    # scene_3 — "Dense Upper": navigate through tightly-packed upper obstacles.
+    "scene_3": (np.array([-0.5, -2.5], dtype=np.float32), np.array([0.5, 2.5], dtype=np.float32)),
+    # scene_4 — "Diagonal Block": two large corner obstacles + right-side blocker.
+    "scene_4": (np.array([-2.0,  1.0], dtype=np.float32), np.array([2.5,  0.5], dtype=np.float32)),
+    # scene_5 — "Scattered Perimeter": five moderate perimeter obstacles.
+    "scene_5": (np.array([-0.5, -2.5], dtype=np.float32), np.array([0.5,  2.5], dtype=np.float32)),
 }
 
 StepCallback = Callable[[Dict[str, Any]], None]
@@ -162,6 +168,75 @@ class RRTStarBase:
         reached_target = abs(travel - dist) <= 1e-8
         return q_end.astype(np.float32), float(travel), collision_free, reached_target
 
+    # ------------------------------------------------------------------
+    # Overridable goal hooks (used by plan())
+    # ------------------------------------------------------------------
+
+    def _validate_goal(self, goal: np.ndarray) -> None:
+        if not self.in_bounds(goal):
+            raise ValueError("Goal is out of bounds.")
+        if not self.is_state_collision_free(goal):
+            raise ValueError("Goal is in collision.")
+
+    def _is_near_goal(self, q_new: np.ndarray, goal: np.ndarray) -> bool:
+        return euclidean(q_new, goal) <= self.goal_threshold
+
+    def _make_goal_connection(
+        self,
+        new_idx: int,
+        nodes: List[Node],
+        goal: np.ndarray,
+        goal_idx: Optional[int],
+        rewires: int,
+        it: int,
+        t0: float,
+    ) -> Tuple[Optional[int], int, Optional[int], Optional[int], Optional[float], Optional[Dict[str, Any]]]:
+        """Try to connect q_new to the goal.
+
+        Returns (goal_idx, rewires, first_goal_iteration, nodes_to_first_path,
+                 time_to_first_path_sec, goal_event).
+        Unchanged values should be passed through from the caller.
+        """
+        _, goal_conn_cost, ok, reached = self.rollout_edge(
+            nodes[new_idx].q, goal, max_extension=None
+        )
+        if not (ok and reached):
+            return goal_idx, rewires, None, None, None, None
+
+        goal_cost = nodes[new_idx].cost + goal_conn_cost
+        goal_event: Optional[Dict[str, Any]] = None
+        first_goal_iteration: Optional[int] = None
+        nodes_to_first_path: Optional[int] = None
+        time_to_first_path_sec: Optional[float] = None
+
+        if goal_idx is None:
+            goal_idx = len(nodes)
+            nodes.append(Node(q=goal.copy(), parent=new_idx, cost=goal_cost))
+            first_goal_iteration = it + 1
+            nodes_to_first_path = len(nodes)
+            time_to_first_path_sec = time.time() - t0
+            goal_event = {
+                "type": "added",
+                "goal_idx": goal_idx,
+                "parent_idx": new_idx,
+                "goal_q": goal.copy(),
+                "parent_q": nodes[new_idx].q.copy(),
+            }
+        elif goal_cost < nodes[goal_idx].cost:
+            nodes[goal_idx].parent = new_idx
+            nodes[goal_idx].cost = goal_cost
+            rewires += 1
+            goal_event = {
+                "type": "rewired",
+                "goal_idx": goal_idx,
+                "parent_idx": new_idx,
+                "goal_q": goal.copy(),
+                "parent_q": nodes[new_idx].q.copy(),
+            }
+            self.update_descendant_costs(nodes, goal_idx)
+
+        return goal_idx, rewires, first_goal_iteration, nodes_to_first_path, time_to_first_path_sec, goal_event
+
     def plan(
         self,
         start: np.ndarray,
@@ -176,12 +251,9 @@ class RRTStarBase:
 
         if not self.in_bounds(start):
             raise ValueError("Start is out of bounds.")
-        if not self.in_bounds(goal):
-            raise ValueError("Goal is out of bounds.")
         if not self.is_state_collision_free(start):
             raise ValueError("Start is in collision.")
-        if not self.is_state_collision_free(goal):
-            raise ValueError("Goal is in collision.")
+        self._validate_goal(goal)
 
         nodes = [Node(q=start.copy(), parent=None, cost=0.0)]
         goal_idx = None
@@ -282,35 +354,19 @@ class RRTStarBase:
                     self.update_descendant_costs(nodes, idx)
 
             goal_event = None
-            if euclidean(q_new, goal) <= self.goal_threshold:
-                _, goal_conn_cost, ok, reached = self.rollout_edge(nodes[new_idx].q, goal, max_extension=None)
-                if ok and reached:
-                    goal_cost = nodes[new_idx].cost + goal_conn_cost
-                    if goal_idx is None:
-                        goal_idx = len(nodes)
-                        nodes.append(Node(q=goal.copy(), parent=new_idx, cost=goal_cost))
-                        first_goal_iteration = it + 1
-                        nodes_to_first_path = len(nodes)
-                        time_to_first_path_sec = time.time() - t0
-                        goal_event = {
-                            "type": "added",
-                            "goal_idx": goal_idx,
-                            "parent_idx": new_idx,
-                            "goal_q": goal.copy(),
-                            "parent_q": nodes[new_idx].q.copy(),
-                        }
-                    elif goal_cost < nodes[goal_idx].cost:
-                        nodes[goal_idx].parent = new_idx
-                        nodes[goal_idx].cost = goal_cost
-                        rewires += 1
-                        goal_event = {
-                            "type": "rewired",
-                            "goal_idx": goal_idx,
-                            "parent_idx": new_idx,
-                            "goal_q": goal.copy(),
-                            "parent_q": nodes[new_idx].q.copy(),
-                        }
-                        self.update_descendant_costs(nodes, goal_idx)
+            if self._is_near_goal(q_new, goal):
+                (
+                    goal_idx, rewires,
+                    _fgi, _nfp, _ttfp, goal_event,
+                ) = self._make_goal_connection(
+                    new_idx, nodes, goal, goal_idx, rewires, it, t0,
+                )
+                if _fgi is not None:
+                    first_goal_iteration = _fgi
+                if _nfp is not None:
+                    nodes_to_first_path = _nfp
+                if _ttfp is not None:
+                    time_to_first_path_sec = _ttfp
 
             event["accepted"] = True
             event["q_new"] = q_new.copy()
@@ -528,7 +584,7 @@ class CDF_RRTStar(RRTStarBase):
         }
 
     # ------------------------------------------------------------------
-    # Edge extension with safety-shell endpoint projection (Option C)
+    # Edge extension with safety-shell endpoint projection
     # ------------------------------------------------------------------
 
     def rollout_edge(
@@ -575,6 +631,182 @@ class CDF_RRTStar(RRTStarBase):
         return q_projected, new_travel, True, reached_target_proj
 
 
+class CDF_RRTStar_EE(CDF_RRTStar):
+    """CDF-guided RRT* with a task-space end-effector goal.
+
+    Loads a second neural CDF (model_ee.pth) that maps [p, q] -> distance
+    to the IK manifold of workspace point *p*.  Goal-biased samples are
+    projected onto the goal manifold via the EE CDF gradient, then repaired
+    with the obstacle CDF if needed.  Goal checking uses FK distance
+    instead of joint-space Euclidean distance.
+    """
+
+    def __init__(
+        self,
+        cdf: CDF2D,
+        obj_list,
+        q_min: np.ndarray,
+        q_max: np.ndarray,
+        step_size: float = 0.25,
+        goal_threshold: float = 0.25,
+        goal_bias: float = 0.10,
+        neighbor_radius: float = 0.5,
+        edge_resolution: float = 0.05,
+        safety_margin_task_space: float = SAFETY_MARGIN_TASK_SPACE,
+        safety_margin_c_space: float = SAFETY_MARGIN_C_SPACE,
+        softmin_beta: float = SOFTMIN_BETA,
+        model_path: Optional[str] = None,
+        oracle_points_per_obj: int = 120,
+        ee_model_path: Optional[str] = None,
+        ee_goal_threshold: float = 0.15,
+    ) -> None:
+        super().__init__(
+            cdf=cdf,
+            obj_list=obj_list,
+            q_min=q_min,
+            q_max=q_max,
+            step_size=step_size,
+            goal_threshold=goal_threshold,
+            goal_bias=goal_bias,
+            neighbor_radius=neighbor_radius,
+            edge_resolution=edge_resolution,
+            safety_margin_task_space=safety_margin_task_space,
+            safety_margin_c_space=safety_margin_c_space,
+            softmin_beta=softmin_beta,
+            model_path=model_path,
+            oracle_points_per_obj=oracle_points_per_obj,
+        )
+        self.ee_goal_threshold = float(ee_goal_threshold)
+        if ee_model_path is None:
+            ee_model_path = os.path.join(CUR_PATH, "model_ee.pth")
+        self.net_ee = torch.load(ee_model_path, map_location=self.device, weights_only=False)
+        self.net_ee.eval()
+        self.net_ee.requires_grad_(False)
+        self.p_goal_task: Optional[np.ndarray] = None
+
+    # ------------------------------------------------------------------
+    # EE CDF query
+    # ------------------------------------------------------------------
+
+    def get_ee_cdf_data(
+        self, q: np.ndarray, p_goal: np.ndarray
+    ) -> Tuple[float, np.ndarray]:
+        """Single-oracle EE CDF: input [p_goal | q] -> (dist, unit_grad_wrt_q)."""
+        q_t = (
+            torch.tensor(q, dtype=torch.float32, device=self.device)
+            .unsqueeze(0)
+            .requires_grad_(True)
+        )
+        p_t = torch.tensor(p_goal, dtype=torch.float32, device=self.device).unsqueeze(0)
+        net_input = torch.cat([p_t, q_t], dim=1)
+        dist = self.net_ee(net_input).squeeze()
+        grad = torch.autograd.grad(dist, q_t, retain_graph=False, create_graph=False)[0].squeeze(0)
+        return float(dist.item()), safe_normalize(grad.detach().cpu().numpy()).astype(np.float32)
+
+    # ------------------------------------------------------------------
+    # Hook overrides
+    # ------------------------------------------------------------------
+
+    def _validate_goal(self, goal: np.ndarray) -> None:
+        pass
+
+    def _is_near_goal(self, q_new: np.ndarray, goal: np.ndarray) -> bool:
+        q_t = torch.tensor(q_new, dtype=torch.float32, device=self.device).unsqueeze(0)
+        with torch.no_grad():
+            ee = self.cdf.robot.forward_kinematics_eef(q_t).squeeze()
+        ee_np = ee.cpu().numpy()
+        return float(np.linalg.norm(ee_np - self.p_goal_task)) <= self.ee_goal_threshold
+
+    def _make_goal_connection(
+        self,
+        new_idx: int,
+        nodes: List[Node],
+        goal: np.ndarray,
+        goal_idx: Optional[int],
+        rewires: int,
+        it: int,
+        t0: float,
+    ) -> Tuple[Optional[int], int, Optional[int], Optional[int], Optional[float], Optional[Dict[str, Any]]]:
+        """The newly added tree node *is* the goal — zero-length connection."""
+        goal_cost = nodes[new_idx].cost
+        goal_event: Optional[Dict[str, Any]] = None
+        first_goal_iteration: Optional[int] = None
+        nodes_to_first_path: Optional[int] = None
+        time_to_first_path_sec: Optional[float] = None
+
+        if goal_idx is None:
+            goal_idx = new_idx
+            first_goal_iteration = it + 1
+            nodes_to_first_path = len(nodes)
+            time_to_first_path_sec = time.time() - t0
+            goal_event = {
+                "type": "added",
+                "goal_idx": goal_idx,
+                "parent_idx": nodes[new_idx].parent,
+                "goal_q": nodes[new_idx].q.copy(),
+                "parent_q": nodes[nodes[new_idx].parent].q.copy(),
+            }
+        elif goal_cost < nodes[goal_idx].cost:
+            goal_idx = new_idx
+            rewires += 1
+            goal_event = {
+                "type": "rewired",
+                "goal_idx": goal_idx,
+                "parent_idx": nodes[new_idx].parent,
+                "goal_q": nodes[new_idx].q.copy(),
+                "parent_q": nodes[nodes[new_idx].parent].q.copy(),
+            }
+
+        return goal_idx, rewires, first_goal_iteration, nodes_to_first_path, time_to_first_path_sec, goal_event
+
+    # ------------------------------------------------------------------
+    # Sampling: goal bias uses EE CDF projection + obstacle repair
+    # ------------------------------------------------------------------
+
+    def sample_target_with_info(
+        self, goal: np.ndarray, rng: np.random.Generator
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
+        if rng.random() < self.goal_bias:
+            q_rand = rng.uniform(self.q_min, self.q_max).astype(np.float32)
+            d_ee, g_ee = self.get_ee_cdf_data(q_rand, self.p_goal_task)
+            q = q_rand - d_ee * g_ee
+            q = self.clamp_to_bounds(q).astype(np.float32)
+
+            cdf_dist = self.get_cdf_distance(q)
+            if cdf_dist < self.safety_margin_c_space:
+                d_obs, g_obs = self.get_cdf_data(q)
+                q = q + (self.safety_margin_c_space - d_obs) * g_obs
+                q = self.clamp_to_bounds(q).astype(np.float32)
+
+            return q, {
+                "mode": "ee_goal_project",
+                "raw_sample": q_rand.copy(),
+                "used_sample": q.copy(),
+                "projected": True,
+                "ee_cdf_distance": float(d_ee),
+            }
+
+        return super().sample_target_with_info(goal, rng)
+
+    # ------------------------------------------------------------------
+    # Plan (stores task-space goal, passes dummy joint-space goal)
+    # ------------------------------------------------------------------
+
+    def plan(
+        self,
+        start: np.ndarray,
+        goal: np.ndarray,
+        max_iters: int,
+        seed: int,
+        callback: Optional[StepCallback] = None,
+    ) -> Tuple[List[Node], Optional[np.ndarray], dict]:
+        self.p_goal_task = np.asarray(goal, dtype=np.float32)
+        dummy_goal = np.asarray(start, dtype=np.float32).copy()
+        return super(CDF_RRTStar, self).plan(
+            start, dummy_goal, max_iters, seed, callback
+        )
+
+
 def _matplotlib_backend_is_interactive() -> bool:
     """True if the GUI can be shown/updated (not file-only or notebook inline)."""
     name = plt.get_backend().lower()
@@ -595,6 +827,8 @@ class LiveTreeVisualizer:
         planner_name: str,
         update_every: int = 1,
         pause_sec: float = 0.001,
+        p_goal_task_space: Optional[np.ndarray] = None,
+        ik_solutions: Optional[np.ndarray] = None,
     ) -> None:
         self.update_every = max(1, int(update_every))
         self.pause_sec = max(0.0, float(pause_sec))
@@ -636,6 +870,18 @@ class LiveTreeVisualizer:
         self.fig.canvas.draw_idle()
         if self.interactive_backend:
             self.fig.canvas.flush_events()
+
+        self.fig_goal: Optional[plt.Figure] = None
+        if p_goal_task_space is not None:
+            self.fig_goal, ax_goal = plt.subplots(figsize=(9, 8))
+            cdf.plot_ee_goal_cdf(ax_goal, p_goal_task_space, ik_solutions=ik_solutions)
+            ax_goal.plot(start[0], start[1], "go", markersize=8, label="Start")
+            ax_goal.set_title(f"{planner_name}: EE Goal CDF")
+            ax_goal.legend(loc="upper right", fontsize=9)
+            self.fig_goal.tight_layout()
+            self.fig_goal.canvas.draw_idle()
+            if self.interactive_backend:
+                self.fig_goal.canvas.flush_events()
 
     def _maybe_draw_raw_projection(self, q_target: np.ndarray, sampling: Dict[str, Any]) -> None:
         raw_sample = sampling.get("raw_sample")
@@ -762,7 +1008,7 @@ def parse_args():
         description="Run Vanilla or CDF-guided RRT* with optional live tree/sampling visualization."
     )
     parser.add_argument("--planner", choices=["vanilla", "cdf"], default="cdf")
-    parser.add_argument("--scene", choices=["scene_1", "scene_2"], default="scene_1")
+    parser.add_argument("--scene", choices=["scene_1", "scene_2", "scene_3", "scene_4", "scene_5"], default="scene_1")
     parser.add_argument("--start", nargs=2, type=float, metavar=("Q1", "Q2"))
     parser.add_argument("--goal", nargs=2, type=float, metavar=("Q1", "Q2"))
 
@@ -778,6 +1024,13 @@ def parse_args():
     parser.add_argument("--safety-margin-c-space", type=float, default=SAFETY_MARGIN_C_SPACE)
     parser.add_argument("--softmin-beta", type=float, default=SOFTMIN_BETA)
     parser.add_argument("--model-path", type=str, default=None)
+
+    parser.add_argument("--ee-goal", nargs=2, type=float, metavar=("X", "Y"),
+                        help="Task-space EE goal (uses CDF_RRTStar_EE; overrides --goal).")
+    parser.add_argument("--ee-model-path", type=str, default=None,
+                        help="Path to trained EE CDF model (model_ee.pth).")
+    parser.add_argument("--ee-goal-threshold", type=float, default=0.15,
+                        help="EE distance threshold for task-space goal reaching.")
 
     parser.add_argument("--live-viz", action="store_true")
     parser.add_argument("--viz-update-every", type=int, default=1)
@@ -815,6 +1068,37 @@ def _validate_query_points(planner: RRTStarBase, start: np.ndarray, goal: np.nda
         raise SystemExit("Error: Goal configuration is in collision.")
 
 
+def _pick_ik_goal(
+    cdf_obj: CDF2D,
+    obj_list,
+    p_goal: np.ndarray,
+    start: np.ndarray,
+    device: torch.device,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Find IK solutions for *p_goal*, return (best_q, all_valid_qs)."""
+    p_t = torch.tensor(p_goal, dtype=torch.float32, device=device)
+    _, q_solutions, _ = cdf_obj.find_q_ee(p_t)
+    q_np = q_solutions.detach().cpu().numpy().astype(np.float32)
+
+    valid = []
+    for q in q_np:
+        q_t = torch.tensor(q, dtype=torch.float32, device=device).unsqueeze(0)
+        sdf = cdf_obj.inference_sdf(q_t, obj_list).item()
+        if sdf > 0.0:
+            valid.append(q)
+
+    if len(valid) == 0:
+        raise RuntimeError(
+            f"No collision-free IK solution found for EE goal {p_goal}. "
+            "Try a different goal or increase the IK batch size."
+        )
+
+    valid_np = np.array(valid, dtype=np.float32)
+    dists = np.linalg.norm(valid_np - start, axis=1)
+    best_idx = int(np.argmin(dists))
+    return valid_np[best_idx], valid_np
+
+
 def main():
     args = parse_args()
     if args.viz_update_every < 1:
@@ -830,51 +1114,78 @@ def main():
     obj_list = make_scene(args.scene, device)
     q_min = cdf.q_min.detach().cpu().numpy().astype(np.float32)
     q_max = cdf.q_max.detach().cpu().numpy().astype(np.float32)
-    start, goal = _resolve_start_goal(args)
+    start, _ = _resolve_start_goal(args)
+
+    ee_mode = args.ee_goal is not None
+    p_goal_task: Optional[np.ndarray] = None
+    ik_solutions: Optional[np.ndarray] = None
+
+    if ee_mode:
+        p_goal_task = np.asarray(args.ee_goal, dtype=np.float32)
+
+    planner_kwargs = dict(
+        step_size=args.step_size,
+        goal_threshold=args.goal_threshold,
+        goal_bias=args.goal_bias,
+        neighbor_radius=args.neighbor_radius,
+        edge_resolution=args.edge_resolution,
+    )
 
     if args.planner == "vanilla":
+        if ee_mode:
+            q_ik_goal, ik_solutions = _pick_ik_goal(cdf, obj_list, p_goal_task, start, device)
+            goal = q_ik_goal
+            print(f"IK for vanilla: {len(ik_solutions)} collision-free solutions, "
+                  f"best q = [{q_ik_goal[0]:.3f}, {q_ik_goal[1]:.3f}]")
+        else:
+            _, goal = _resolve_start_goal(args)
+
         planner_name = "Vanilla_RRTStar"
         planner: RRTStarBase = Vanilla_RRTStar(
-            cdf=cdf,
-            obj_list=obj_list,
-            q_min=q_min,
-            q_max=q_max,
-            step_size=args.step_size,
-            goal_threshold=args.goal_threshold,
-            goal_bias=args.goal_bias,
-            neighbor_radius=args.neighbor_radius,
-            edge_resolution=args.edge_resolution,
+            cdf=cdf, obj_list=obj_list, q_min=q_min, q_max=q_max,
+            **planner_kwargs,
         )
+        _validate_query_points(planner, start, goal)
     else:
-        planner_name = "CDF_RRTStar"
-        planner = CDF_RRTStar(
-            cdf=cdf,
-            obj_list=obj_list,
-            q_min=q_min,
-            q_max=q_max,
-            step_size=args.step_size,
-            goal_threshold=args.goal_threshold,
-            goal_bias=args.goal_bias,
-            neighbor_radius=args.neighbor_radius,
-            edge_resolution=args.edge_resolution,
-            safety_margin_task_space=args.safety_margin_task_space,
-            safety_margin_c_space=args.safety_margin_c_space,
-            softmin_beta=args.softmin_beta,
-            model_path=args.model_path,
-        )
-
-    _validate_query_points(planner, start, goal)
+        if ee_mode:
+            planner_name = "CDF_RRTStar_EE"
+            goal = p_goal_task
+            planner = CDF_RRTStar_EE(
+                cdf=cdf, obj_list=obj_list, q_min=q_min, q_max=q_max,
+                safety_margin_task_space=args.safety_margin_task_space,
+                safety_margin_c_space=args.safety_margin_c_space,
+                softmin_beta=args.softmin_beta,
+                model_path=args.model_path,
+                ee_model_path=args.ee_model_path,
+                ee_goal_threshold=args.ee_goal_threshold,
+                **planner_kwargs,
+            )
+        else:
+            _, goal = _resolve_start_goal(args)
+            planner_name = "CDF_RRTStar"
+            planner = CDF_RRTStar(
+                cdf=cdf, obj_list=obj_list, q_min=q_min, q_max=q_max,
+                safety_margin_task_space=args.safety_margin_task_space,
+                safety_margin_c_space=args.safety_margin_c_space,
+                softmin_beta=args.softmin_beta,
+                model_path=args.model_path,
+                **planner_kwargs,
+            )
+            _validate_query_points(planner, start, goal)
 
     callback = None
     if args.live_viz:
+        viz_goal = goal if not ee_mode else start.copy()
         viz = LiveTreeVisualizer(
             cdf=cdf,
             obj_list=obj_list,
             start=start,
-            goal=goal,
+            goal=viz_goal,
             planner_name=planner_name,
             update_every=args.viz_update_every,
             pause_sec=args.viz_pause_sec,
+            p_goal_task_space=p_goal_task,
+            ik_solutions=ik_solutions,
         )
         callback = viz.on_step
 
@@ -882,11 +1193,15 @@ def main():
     print(f"planner: {planner_name}")
     print(f"scene: {args.scene}")
     print(f"seed: {args.seed}, max_iters: {args.max_iters}")
-    print(
-        f"start: [{start[0]:.3f}, {start[1]:.3f}] | "
-        f"goal: [{goal[0]:.3f}, {goal[1]:.3f}] | "
-        f"live_viz: {args.live_viz}"
-    )
+    if ee_mode:
+        print(f"start: [{start[0]:.3f}, {start[1]:.3f}] | "
+              f"ee_goal: [{p_goal_task[0]:.3f}, {p_goal_task[1]:.3f}] | "
+              f"live_viz: {args.live_viz}")
+    else:
+        print(f"start: [{start[0]:.3f}, {start[1]:.3f}] | "
+              f"goal: [{goal[0]:.3f}, {goal[1]:.3f}] | "
+              f"live_viz: {args.live_viz}")
+
     nodes, path, stats = planner.plan(
         start=start,
         goal=goal,
@@ -905,9 +1220,18 @@ def main():
         nodes=nodes,
         path=path,
         start=start,
-        goal=goal,
+        goal=goal if not ee_mode else start.copy(),
         title=f"{args.scene}: {planner_name} (Final)",
     )
+
+    if ee_mode:
+        fig2, ax2 = plt.subplots(figsize=(9, 8))
+        cdf.plot_ee_goal_cdf(ax2, p_goal_task, ik_solutions=ik_solutions)
+        ax2.plot(start[0], start[1], "go", markersize=8, label="Start")
+        ax2.set_title(f"{args.scene}: {planner_name} - EE Goal CDF")
+        ax2.legend(loc="upper right", fontsize=9)
+        fig2.tight_layout()
+
     plt.tight_layout()
     plt.ioff()
     if _matplotlib_backend_is_interactive():

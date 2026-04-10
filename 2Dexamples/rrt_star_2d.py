@@ -34,6 +34,39 @@ def make_scene(scene_name: str, device: torch.device):
             Circle(center=torch.tensor([2.3, -2.3]), radius=0.3, device=device),
             Circle(center=torch.tensor([0.0, 2.45]), radius=0.3, device=device),
         ]
+    if scene_name == "scene_3":
+        # "Dense Upper" — five obstacles filling the upper and lateral workspace.
+        # The arm starts in the lower region and must reach a configuration in the
+        # upper region, threading between tightly-packed obstacles.  This maps to a
+        # heavily fragmented C-space obstacle that is hard for uniform sampling.
+        return [
+            Circle(center=torch.tensor([2.2,  2.2]), radius=0.8, device=device),
+            Circle(center=torch.tensor([0.0,  3.0]), radius=0.7, device=device),
+            Circle(center=torch.tensor([-2.2, 2.2]), radius=0.8, device=device),
+            Circle(center=torch.tensor([3.0,  0.0]), radius=0.6, device=device),
+            Circle(center=torch.tensor([-3.0, 0.0]), radius=0.6, device=device),
+        ]
+    if scene_name == "scene_4":
+        # "Diagonal Block" — two large circles occupy opposite corners (upper-right
+        # and lower-left), with a small blocker on the right side.  The arm must
+        # navigate along the anti-diagonal band of C-space from the upper-left to
+        # the lower-right region.  Verified solvable (~26% rejection rate).
+        return [
+            Circle(center=torch.tensor([ 2.5,  2.5]), radius=1.3, device=device),
+            Circle(center=torch.tensor([-2.5, -2.5]), radius=1.3, device=device),
+            Circle(center=torch.tensor([ 2.8, -1.5]), radius=0.6, device=device),
+        ]
+    if scene_name == "scene_5":
+        # "Scattered Perimeter" — five moderate obstacles arranged around the
+        # workspace perimeter.  Each obstacle blocks a different arm reach direction,
+        # creating a multi-obstacle C-space challenge (~31% rejection rate).
+        return [
+            Circle(center=torch.tensor([ 2.0,  2.0]), radius=0.7, device=device),
+            Circle(center=torch.tensor([-2.0,  2.0]), radius=0.7, device=device),
+            Circle(center=torch.tensor([ 0.0, -3.0]), radius=0.7, device=device),
+            Circle(center=torch.tensor([ 3.0, -1.0]), radius=0.6, device=device),
+            Circle(center=torch.tensor([-3.0, -1.0]), radius=0.6, device=device),
+        ]
     raise ValueError(f"Unknown scene: {scene_name}")
 
 

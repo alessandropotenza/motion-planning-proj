@@ -6,6 +6,7 @@
 # -----------------------------------------------------------------------------
 
 # 2D example for configuration space distance field
+from typing import Optional
 import numpy as np
 import os
 import sys
@@ -210,6 +211,70 @@ class CDF2D:
 
         torch.save(tensor_data, os.path.join(CUR_PATH, 'data2D_ee.pt'))
         return tensor_data
+
+    def compute_ee_goal_cdf_grid(self, p_goal: np.ndarray) -> np.ndarray:
+        """C-space distance from every Q_grid point to the EE goal manifold.
+
+        Uses q_grid_template_ee (offline data).
+        Returns shape (nbData*nbData,).
+        """
+        if self.q_grid_template_ee is None:
+            raise RuntimeError(
+                "EE CDF data (data2D_ee.pt) not loaded. "
+                "Generate it first with CDF2D.generate_data_ee()."
+            )
+        p_t = torch.tensor(p_goal, dtype=torch.float32, device=self.device)
+        grid_idx = self.x_to_grid(p_t.unsqueeze(0)).squeeze()
+        q_manifold = self.q_grid_template_ee[grid_idx[0], grid_idx[1]]
+        q_manifold = q_manifold[q_manifold[:, 0] != torch.inf]
+        if len(q_manifold) == 0:
+            return np.full(len(self.Q_grid), np.nan)
+        dist = torch.norm(
+            self.Q_grid.unsqueeze(1) - q_manifold.unsqueeze(0), dim=-1
+        )
+        return dist.min(dim=1)[0].detach().cpu().numpy()
+
+    def plot_ee_goal_cdf(
+        self,
+        ax,
+        p_goal: np.ndarray,
+        ik_solutions: Optional[np.ndarray] = None,
+    ) -> None:
+        """Plot the EE-goal CDF on *ax*.
+
+        Shows the C-space distance field to the IK manifold for the given
+        task-space goal point.  If *ik_solutions* (N,2) is provided the
+        corresponding joint-space points are drawn as red stars.
+        """
+        d = self.compute_ee_goal_cdf_grid(p_goal)
+        d_grid = d.reshape(self.nbData, self.nbData)
+
+        ax.set_aspect('equal', 'box')
+        ax.set_title('EE Goal CDF', size=30)
+        ax.set_xlabel('q1', size=20)
+        ax.set_ylabel('q2', size=20)
+        axis_limits = (-PI, PI)
+        ax.set_xlim(axis_limits)
+        ax.set_ylim(axis_limits)
+        ax.tick_params(axis='both', labelsize=20)
+
+        ax.contour(
+            self.q0, self.q1, d_grid,
+            levels=[0], linewidths=6, colors='black', alpha=1.0,
+        )
+        ct = ax.contourf(
+            self.q0, self.q1, d_grid,
+            levels=8, linewidths=1, cmap='coolwarm',
+        )
+        ax.clabel(ct, inline=False, fontsize=15, colors='black', fmt='%.1f')
+
+        if ik_solutions is not None and len(ik_solutions) > 0:
+            ax.plot(
+                ik_solutions[:, 0], ik_solutions[:, 1],
+                'r*', markersize=14, markeredgecolor='darkred',
+                label='IK solutions', zorder=5,
+            )
+            ax.legend(loc='upper right', fontsize=9)
 
     def calculate_cdf(self,q,obj_lists,method='online_computation',return_grad = False):
         # x : (Nx,2)
