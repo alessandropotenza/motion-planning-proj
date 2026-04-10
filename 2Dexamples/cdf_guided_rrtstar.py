@@ -16,11 +16,8 @@ from cdf import CDF2D
 from mlp import MLPRegression  # Needed for torch.load() of model.pth
 
 
-SAFETY_MARGIN = 0.25
-MICRO_STEP_SIZE = 0.02
+SAFETY_MARGIN = 1.0
 SOFTMIN_BETA = 50.0
-MIGRATION_STEPS = 5
-SLIDING_TOLERANCE = 1e-3
 
 CUR_PATH = os.path.dirname(os.path.realpath(__file__))
 
@@ -267,6 +264,14 @@ class Vanilla_RRTStar(RRTStarBase):
 
 
 class CDF_RRTStar(RRTStarBase):
+    """CDF-guided RRT* using one-step projection sampling.
+
+    Uses the neural CDF to repair samples that are near or inside obstacles
+    via single-step gradient projection onto a safety shell.  Edge extension
+    and collision checking are inherited from the vanilla RRTStarBase
+    (straight-line edges with analytic SDF).
+    """
+
     def __init__(
         self,
         cdf: CDF2D,
@@ -279,10 +284,7 @@ class CDF_RRTStar(RRTStarBase):
         neighbor_radius: float = 0.5,
         edge_resolution: float = 0.05,
         safety_margin: float = SAFETY_MARGIN,
-        micro_step_size: float = MICRO_STEP_SIZE,
         softmin_beta: float = SOFTMIN_BETA,
-        migration_steps: int = MIGRATION_STEPS,
-        sliding_tolerance: float = SLIDING_TOLERANCE,
         model_path: Optional[str] = None,
         oracle_points_per_obj: int = 120,
     ) -> None:
@@ -298,10 +300,7 @@ class CDF_RRTStar(RRTStarBase):
             edge_resolution=edge_resolution,
         )
         self.safety_margin = float(safety_margin)
-        self.micro_step_size = float(micro_step_size)
         self.softmin_beta = float(softmin_beta)
-        self.migration_steps = int(migration_steps)
-        self.sliding_tolerance = float(sliding_tolerance)
         self.oracle_points_per_obj = int(oracle_points_per_obj)
 
         if model_path is None:
@@ -309,8 +308,13 @@ class CDF_RRTStar(RRTStarBase):
         self.model_path = model_path
         self.net = torch.load(self.model_path, map_location=self.device, weights_only=False)
         self.net.eval()
+        self.net.requires_grad_(False)
 
         self.oracle_points = self._build_oracle_points().to(self.device)
+
+    # ------------------------------------------------------------------
+    # Oracle points & softmin (unchanged)
+    # ------------------------------------------------------------------
 
     def _build_oracle_points(self) -> torch.Tensor:
         point_sets = []
@@ -336,131 +340,69 @@ class CDF_RRTStar(RRTStarBase):
     def _softmin(self, distances: torch.Tensor) -> torch.Tensor:
         return -torch.logsumexp(-self.softmin_beta * distances, dim=0) / self.softmin_beta
 
+    # ------------------------------------------------------------------
+    # CDF queries
+    # ------------------------------------------------------------------
+
+    def _quick_sdf(self, q: np.ndarray) -> float:
+        """Cheap analytic workspace SDF (FK + primitive SDF, no neural net)."""
+        q_t = torch.tensor(q, dtype=torch.float32, device=self.device).unsqueeze(0)
+        with torch.no_grad():
+            sdf = self.cdf.inference_sdf(q_t, self.obj_list)
+        return float(sdf.item())
+
+    def get_cdf_distance(self, q: np.ndarray) -> float:
+        """Forward-only CDF query (no gradient). Returns signed distance."""
+        q_t = torch.tensor(q, dtype=torch.float32, device=self.device).unsqueeze(0)
+        pts = self.oracle_points
+        with torch.no_grad():
+            q_rep = q_t.repeat(pts.size(0), 1)
+            net_input = torch.cat([pts, q_rep], dim=1)
+            d_all = self.net.forward(net_input).squeeze()
+            fused_dist = self._softmin(d_all)
+
+            q_sdf = q_t.clone()
+            sdf_val = self.cdf.inference_sdf(q_sdf, self.obj_list)
+            signed_dist = float(np.sign(sdf_val.item())) * float(fused_dist.item())
+        return signed_dist
+
     def get_cdf_data(self, q: np.ndarray) -> Tuple[float, np.ndarray]:
-        # 1. Send to PyTorch
+        """CDF query returning signed distance and unit gradient."""
         q_t = torch.tensor(q, dtype=torch.float32, device=self.device).unsqueeze(0).requires_grad_(True)
         pts = self.oracle_points
         q_rep = q_t.repeat(pts.size(0), 1)
         net_input = torch.cat([pts, q_rep], dim=1)
 
-        # 2. Forward pass & Softmin
         d_all = self.net.forward(net_input).squeeze()
         fused_dist = self._softmin(d_all)
-
-        # 3. Backward pass (Gradient)
         grad = torch.autograd.grad(fused_dist, q_t, retain_graph=False, create_graph=False)[0].squeeze(0)
 
-        # 4. Return result
-        return float(fused_dist.detach().item()), safe_normalize(grad.detach().cpu().numpy()).astype(np.float32)
+        q_sdf = q_t.detach().clone().requires_grad_(True)
+        sdf_val, sdf_grad = self.cdf.inference_sdf(q_sdf, self.obj_list, return_grad=True)
+        signed_dist = float(np.sign(sdf_val.item())) * float(fused_dist.detach().item())
+
+        grad_np = grad.detach().cpu().numpy()
+        sdf_grad_np = sdf_grad.squeeze(0).detach().cpu().numpy()
+        if np.dot(grad_np, sdf_grad_np) < 0.0:
+            grad_np = -grad_np
+        grad_np = safe_normalize(grad_np)
+        return signed_dist, grad_np.astype(np.float32)
+
+    # ------------------------------------------------------------------
+    # Sampling (one-step projection, SDF-gated)
+    # ------------------------------------------------------------------
 
     def sample_target(self, goal: np.ndarray, rng: np.random.Generator) -> np.ndarray:
-        r = rng.random()
-
-        # Strategy A: goal bias (10%)
-        if r < 0.10:
+        if rng.random() < self.goal_bias:
             return goal.copy()
 
-        # Strategy B: boundary shell projection (40%)
-        if r < 0.50:
-            q_rand = rng.uniform(self.q_min, self.q_max).astype(np.float32)
-            dist, grad = self.get_cdf_data(q_rand)
-            if dist < self.safety_margin:
-                q_new = q_rand + (self.safety_margin - dist) * grad
-                q_new = self.clamp_to_bounds(q_new)
-                return q_new.astype(np.float32)
+        q_rand = rng.uniform(self.q_min, self.q_max).astype(np.float32)
+
+        sdf_val = self._quick_sdf(q_rand)
+        if sdf_val > self.safety_margin:
             return q_rand
 
-        # Strategy C: goal-directed migration (50%)
-        q_rand = None
-        for _ in range(100):
-            candidate = rng.uniform(self.q_min, self.q_max).astype(np.float32)
-            if self.is_state_collision_free(candidate):
-                q_rand = candidate
-                break
-        if q_rand is None:
-            q_rand = rng.uniform(self.q_min, self.q_max).astype(np.float32)
-
-        q_curr = q_rand.copy()
-        v_goal = safe_normalize(goal - q_curr)
-        if np.linalg.norm(v_goal) < 1e-8:
-            return q_curr
-
-        for _ in range(self.migration_steps):
-            q_curr = self.clamp_to_bounds(q_curr + self.micro_step_size * v_goal).astype(np.float32)
-            dist, _ = self.get_cdf_data(q_curr)
-            if dist <= self.safety_margin:
-                break
-        return q_curr
-
-    def rollout_edge(
-        self,
-        q_from: np.ndarray,
-        q_target: np.ndarray,
-        max_extension: Optional[float],
-    ) -> Tuple[np.ndarray, float, bool, bool]:
-        is_rewire = max_extension is None
-        direction = q_target - q_from
-        dist_to_target = np.linalg.norm(direction)
-
-        if dist_to_target < 1e-10:
-            return q_from.copy(), 0.0, True, True
-
-        # ====================================================
-        # MODE 1: FAST REWIRING (Straight Line, No Neural Net)
-        # ====================================================
-        if is_rewire:
-            collision_free = self.is_edge_collision_free(q_from, q_target)
-            return q_target.copy(), float(dist_to_target), collision_free, True
-
-        # ====================================================
-        # MODE 2: CDF EXPLORATION (Micro-step Sliding)
-        # ====================================================
-        q_curr = q_from.copy().astype(np.float32)
-        travel = 0.0
-        reached_target = False
-
-        max_steps = int((max_extension / self.micro_step_size) + 10)
-
-        for _ in range(max_steps):
-            delta = q_target - q_curr
-            dist = np.linalg.norm(delta)
-
-            if dist <= self.micro_step_size:
-                reached_target = True
-                break
-
-            if travel >= max_extension - 1e-10:
-                break
-
-            v = safe_normalize(delta)
-            if np.linalg.norm(v) < 1e-8:
-                reached_target = True
-                break
-
-            # Neural CDF Sliding Heuristic
-            dist_cdf, grad = self.get_cdf_data(q_curr)
-            if dist_cdf <= (self.safety_margin + self.sliding_tolerance) and np.dot(v, grad) < 0.0:
-                v_safe = v - np.dot(v, grad) * grad
-                if np.linalg.norm(v_safe) > 1e-8:
-                    v = safe_normalize(v_safe)
-
-            # Enforce max step sizes
-            step = min(self.micro_step_size, max_extension - travel, dist)
-            if step <= 1e-10:
-                break
-
-            q_next = self.clamp_to_bounds(q_curr + step * v).astype(np.float32)
-            if np.linalg.norm(q_next - q_curr) < 1e-10:
-                break
-
-            travel += euclidean(q_curr, q_next)
-            q_curr = q_next
-
-        # STRICT SAFETY NET: Check the straight chord of the curved arc
-        collision_free = self.is_edge_collision_free(q_from, q_curr)
-
-        # If the chord cuts an obstacle, discard this branch.
-        if not collision_free:
-            reached_target = False
-
-        return q_curr, float(euclidean(q_from, q_curr)), collision_free, reached_target
+        dist, grad = self.get_cdf_data(q_rand)
+        q_proj = q_rand + (self.safety_margin - dist) * grad
+        q_proj = self.clamp_to_bounds(q_proj)
+        return q_proj.astype(np.float32)

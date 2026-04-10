@@ -43,10 +43,17 @@ class CDF2D:
         # robot
         self.robot = Robot2D(num_joints=self.num_joints ,init_states = self.Q_grid,link_length=self.link_length,device = device)
 
-        # c space distance field
+        # c space distance field (whole-body)
         if not os.path.exists(os.path.join(CUR_PATH,'data2D.pt')):
             self.generate_data()
         self.q_grid_template =  torch.load(os.path.join(CUR_PATH,'data2D.pt'))
+
+        # c space distance field (end-effector only, optional)
+        ee_path = os.path.join(CUR_PATH, 'data2D_ee.pt')
+        if os.path.exists(ee_path):
+            self.q_grid_template_ee = torch.load(ee_path)
+        else:
+            self.q_grid_template_ee = None
 
     def create_grid(self,nb_data):
         t = np.linspace(-math.pi,math.pi, nb_data)
@@ -140,6 +147,68 @@ class CDF2D:
                 q = q[:max_q_per_x]
             tensor_data[int(i),int(j),:len(q),:] = q
         torch.save(tensor_data,os.path.join(CUR_PATH,'data2D.pt'))
+        return tensor_data
+
+    def find_q_ee(self, target_point, batchsize=None):
+        """Find configs q where the end-effector reaches target_point.
+
+        Uses L-BFGS to minimise ||FK_ee(q) - target_point||^2.
+        Returns (q0_valid, q_valid, q_all) mirroring find_q's signature.
+        """
+        if not batchsize:
+            batchsize = self.batchsize
+
+        target = target_point.to(self.device).unsqueeze(0)
+
+        def cost_function(q):
+            ee = self.robot.forward_kinematics_eef(q)
+            return torch.sum((ee - target) ** 2)
+
+        q = torch.rand(batchsize, 2).to(self.device) * (self.q_max - self.q_min) + self.q_min
+        q0 = copy.deepcopy(q)
+        res = minimize(
+            cost_function,
+            q,
+            method='l-bfgs',
+            options=dict(line_search='strong-wolfe'),
+            max_iter=50,
+            disp=0,
+        )
+
+        ee_pos = self.robot.forward_kinematics_eef(res.x)
+        dist = torch.norm(ee_pos - target, dim=-1)
+        mask = dist < 0.05
+        q_valid = res.x[mask]
+        boundary_mask = ((q_valid > self.q_min) & (q_valid < self.q_max)).all(dim=1)
+        final_q = q_valid[boundary_mask]
+        q0_valid = q0[mask][boundary_mask]
+        return q0_valid, final_q, res.x
+
+    def generate_data_ee(self):
+        """Generate end-effector CDF training data (saved to data2D_ee.pt).
+
+        For each workspace grid point, finds configs where the EE tip
+        reaches that point (IK solutions only, not whole-body contact).
+        """
+        x = torch.linspace(self.task_space[0][0], self.task_space[1][0], self.nbDiscretization).to(self.device)
+        y = torch.linspace(self.task_space[0][1], self.task_space[1][1], self.nbDiscretization).to(self.device)
+        xx, yy = torch.meshgrid(x, y)
+        xx, yy = xx.reshape(-1, 1), yy.reshape(-1, 1)
+        p = torch.cat([xx, yy], dim=-1).to(self.device)
+
+        max_q_per_x = 200
+        tensor_data = torch.inf * torch.ones(self.nbData, self.nbData, max_q_per_x, 2).to(self.device)
+
+        for idx, _p in enumerate(p):
+            _, q_valid, _ = self.find_q_ee(_p)
+            i = idx // self.nbDiscretization
+            j = idx % self.nbDiscretization
+            n = min(len(q_valid), max_q_per_x)
+            if n > 0:
+                tensor_data[i, j, :n, :] = q_valid[:n]
+            print('EE data | grid {}/{} \t solutions: {}'.format(idx + 1, len(p), n))
+
+        torch.save(tensor_data, os.path.join(CUR_PATH, 'data2D_ee.pt'))
         return tensor_data
 
     def calculate_cdf(self,q,obj_lists,method='online_computation',return_grad = False):

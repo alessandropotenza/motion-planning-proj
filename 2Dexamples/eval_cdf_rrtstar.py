@@ -14,8 +14,6 @@ import torch
 from cdf import CDF2D
 from cdf_guided_rrtstar import (
     CDF_RRTStar,
-    MICRO_STEP_SIZE,
-    MIGRATION_STEPS,
     SAFETY_MARGIN,
     SOFTMIN_BETA,
     Vanilla_RRTStar,
@@ -42,9 +40,7 @@ def parse_args():
     parser.add_argument("--edge-resolution", type=float, default=0.05)
 
     parser.add_argument("--safety-margin", type=float, default=SAFETY_MARGIN)
-    parser.add_argument("--micro-step-size", type=float, default=MICRO_STEP_SIZE)
     parser.add_argument("--softmin-beta", type=float, default=SOFTMIN_BETA)
-    parser.add_argument("--migration-steps", type=int, default=MIGRATION_STEPS)
     return parser.parse_args()
 
 
@@ -113,9 +109,7 @@ def evaluate_scene(scene_name: str, args):
         neighbor_radius=args.neighbor_radius,
         edge_resolution=args.edge_resolution,
         safety_margin=args.safety_margin,
-        micro_step_size=args.micro_step_size,
         softmin_beta=args.softmin_beta,
-        migration_steps=args.migration_steps,
     )
 
     vanilla_nodes, vanilla_path, vanilla_stats = vanilla.plan(
