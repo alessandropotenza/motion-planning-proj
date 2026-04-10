@@ -4,22 +4,32 @@
 # This file is part of the CDF project.
 # -----------------------------------------------------------------------------
 
+import argparse
 import os
 import time
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
 from cdf import CDF2D
 from mlp import MLPRegression  # Needed for torch.load() of model.pth
+from rrt_star_2d import make_scene
 
 
-SAFETY_MARGIN = 1.0
+SAFETY_MARGIN_TASK_SPACE = 0.1
+SAFETY_MARGIN_C_SPACE = 0.2
 SOFTMIN_BETA = 50.0
 
 CUR_PATH = os.path.dirname(os.path.realpath(__file__))
+SCENE_START_GOAL: Dict[str, Tuple[np.ndarray, np.ndarray]] = {
+    "scene_1": (np.array([-2.0, -1.0], dtype=np.float32), np.array([1.5, 1.2], dtype=np.float32)),
+    "scene_2": (np.array([-2.4, 0.2], dtype=np.float32), np.array([2.3, -0.8], dtype=np.float32)),
+}
+
+StepCallback = Callable[[Dict[str, Any]], None]
 
 
 @dataclass
@@ -123,6 +133,17 @@ class RRTStarBase:
             return goal.copy()
         return rng.uniform(self.q_min, self.q_max).astype(np.float32)
 
+    def sample_target_with_info(
+        self, goal: np.ndarray, rng: np.random.Generator
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
+        q_target = self.sample_target(goal, rng).astype(np.float32)
+        return q_target, {
+            "mode": "direct",
+            "raw_sample": q_target.copy(),
+            "used_sample": q_target.copy(),
+            "projected": False,
+        }
+
     def rollout_edge(
         self,
         q_from: np.ndarray,
@@ -147,6 +168,7 @@ class RRTStarBase:
         goal: np.ndarray,
         max_iters: int,
         seed: int,
+        callback: Optional[StepCallback] = None,
     ) -> Tuple[List[Node], Optional[np.ndarray], dict]:
         rng = np.random.default_rng(seed)
         start = np.asarray(start, dtype=np.float32)
@@ -172,18 +194,47 @@ class RRTStarBase:
         t0 = time.time()
 
         for it in range(max_iters):
-            q_target = self.sample_target(goal, rng)
+            q_target, sampling_info = self.sample_target_with_info(goal, rng)
             nearest_idx = self.nearest_index(nodes, q_target, goal_idx)
 
             q_new, edge_cost, collision_free, _ = self.rollout_edge(
                 nodes[nearest_idx].q, q_target, max_extension=self.step_size
             )
+            event: Dict[str, Any] = {
+                "iteration": it + 1,
+                "max_iters": max_iters,
+                "q_target": q_target.copy(),
+                "sampling": sampling_info,
+                "nearest_idx": nearest_idx,
+                "accepted": False,
+                "rejection_reason": None,
+                "new_node_idx": None,
+                "new_node_parent": None,
+                "new_node_q": None,
+                "new_parent_q": None,
+                "rewired_nodes": [],
+                "goal_event": None,
+            }
             if (
                 (not collision_free)
                 or (not self.in_bounds(q_new))
                 or euclidean(q_new, nodes[nearest_idx].q) < 1e-8
             ):
                 rejected_samples += 1
+                if not collision_free:
+                    event["rejection_reason"] = "edge_collision"
+                elif not self.in_bounds(q_new):
+                    event["rejection_reason"] = "out_of_bounds"
+                else:
+                    event["rejection_reason"] = "no_progress"
+                event["q_new"] = q_new.copy()
+                event["tree_size"] = len(nodes)
+                event["discarded_samples"] = rejected_samples
+                event["accepted_nodes"] = len(nodes) - 1
+                event["total_rewires"] = rewires
+                event["elapsed_sec"] = time.time() - t0
+                if callback is not None:
+                    callback(event)
                 continue
 
             near_idxs = self.nearby_indices(nodes, q_new)
@@ -206,6 +257,7 @@ class RRTStarBase:
             new_idx = len(nodes)
             nodes.append(Node(q=q_new, parent=best_parent, cost=best_cost))
 
+            rewired_nodes = []
             for idx in near_idxs:
                 if idx == best_parent or (goal_idx is not None and idx == goal_idx):
                     continue
@@ -214,11 +266,22 @@ class RRTStarBase:
                     continue
                 new_cost = nodes[new_idx].cost + rewire_cost
                 if new_cost < nodes[idx].cost:
+                    old_parent = nodes[idx].parent
                     nodes[idx].parent = new_idx
                     nodes[idx].cost = new_cost
                     rewires += 1
+                    rewired_nodes.append(
+                        {
+                            "node_idx": idx,
+                            "old_parent": old_parent,
+                            "new_parent": new_idx,
+                            "node_q": nodes[idx].q.copy(),
+                            "new_parent_q": nodes[new_idx].q.copy(),
+                        }
+                    )
                     self.update_descendant_costs(nodes, idx)
 
+            goal_event = None
             if euclidean(q_new, goal) <= self.goal_threshold:
                 _, goal_conn_cost, ok, reached = self.rollout_edge(nodes[new_idx].q, goal, max_extension=None)
                 if ok and reached:
@@ -229,11 +292,41 @@ class RRTStarBase:
                         first_goal_iteration = it + 1
                         nodes_to_first_path = len(nodes)
                         time_to_first_path_sec = time.time() - t0
+                        goal_event = {
+                            "type": "added",
+                            "goal_idx": goal_idx,
+                            "parent_idx": new_idx,
+                            "goal_q": goal.copy(),
+                            "parent_q": nodes[new_idx].q.copy(),
+                        }
                     elif goal_cost < nodes[goal_idx].cost:
                         nodes[goal_idx].parent = new_idx
                         nodes[goal_idx].cost = goal_cost
                         rewires += 1
+                        goal_event = {
+                            "type": "rewired",
+                            "goal_idx": goal_idx,
+                            "parent_idx": new_idx,
+                            "goal_q": goal.copy(),
+                            "parent_q": nodes[new_idx].q.copy(),
+                        }
                         self.update_descendant_costs(nodes, goal_idx)
+
+            event["accepted"] = True
+            event["q_new"] = q_new.copy()
+            event["new_node_idx"] = new_idx
+            event["new_node_parent"] = best_parent
+            event["new_node_q"] = nodes[new_idx].q.copy()
+            event["new_parent_q"] = nodes[best_parent].q.copy()
+            event["rewired_nodes"] = rewired_nodes
+            event["goal_event"] = goal_event
+            event["tree_size"] = len(nodes)
+            event["discarded_samples"] = rejected_samples
+            event["accepted_nodes"] = len(nodes) - 1
+            event["total_rewires"] = rewires
+            event["elapsed_sec"] = time.time() - t0
+            if callback is not None:
+                callback(event)
 
         planning_time_sec = time.time() - t0
         path = self.extract_path(nodes, goal_idx) if goal_idx is not None else None
@@ -283,7 +376,8 @@ class CDF_RRTStar(RRTStarBase):
         goal_bias: float = 0.10,
         neighbor_radius: float = 0.5,
         edge_resolution: float = 0.05,
-        safety_margin: float = SAFETY_MARGIN,
+        safety_margin_task_space: float = SAFETY_MARGIN_TASK_SPACE,
+        safety_margin_c_space: float = SAFETY_MARGIN_C_SPACE,
         softmin_beta: float = SOFTMIN_BETA,
         model_path: Optional[str] = None,
         oracle_points_per_obj: int = 120,
@@ -299,7 +393,8 @@ class CDF_RRTStar(RRTStarBase):
             neighbor_radius=neighbor_radius,
             edge_resolution=edge_resolution,
         )
-        self.safety_margin = float(safety_margin)
+        self.safety_margin_task_space = float(safety_margin_task_space)
+        self.safety_margin_c_space = float(safety_margin_c_space)
         self.softmin_beta = float(softmin_beta)
         self.oracle_points_per_obj = int(oracle_points_per_obj)
 
@@ -393,16 +488,434 @@ class CDF_RRTStar(RRTStarBase):
     # ------------------------------------------------------------------
 
     def sample_target(self, goal: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+        q_target, _ = self.sample_target_with_info(goal, rng)
+        return q_target
+
+    def sample_target_with_info(
+        self, goal: np.ndarray, rng: np.random.Generator
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         if rng.random() < self.goal_bias:
-            return goal.copy()
+            goal_sample = goal.copy().astype(np.float32)
+            return goal_sample, {
+                "mode": "goal_bias",
+                "raw_sample": goal_sample.copy(),
+                "used_sample": goal_sample.copy(),
+                "projected": False,
+            }
 
         q_rand = rng.uniform(self.q_min, self.q_max).astype(np.float32)
 
-        sdf_val = self._quick_sdf(q_rand)
-        if sdf_val > self.safety_margin:
-            return q_rand
+        cdf_dist = self.get_cdf_distance(q_rand)
+        if cdf_dist > self.safety_margin_c_space:
+            return q_rand, {
+                "mode": "cdf_keep",
+                "raw_sample": q_rand.copy(),
+                "used_sample": q_rand.copy(),
+                "projected": False,
+                "cdf_distance": float(cdf_dist),
+            }
 
         dist, grad = self.get_cdf_data(q_rand)
-        q_proj = q_rand + (self.safety_margin - dist) * grad
+        q_proj = q_rand + (self.safety_margin_c_space - dist) * grad
         q_proj = self.clamp_to_bounds(q_proj)
-        return q_proj.astype(np.float32)
+        q_proj = q_proj.astype(np.float32)
+        return q_proj, {
+            "mode": "cdf_project",
+            "raw_sample": q_rand.copy(),
+            "used_sample": q_proj.copy(),
+            "projected": True,
+            "cdf_distance": float(dist),
+        }
+
+    # ------------------------------------------------------------------
+    # Edge extension with safety-shell endpoint projection (Option C)
+    # ------------------------------------------------------------------
+
+    def rollout_edge(
+        self,
+        q_from: np.ndarray,
+        q_target: np.ndarray,
+        max_extension: Optional[float],
+    ) -> Tuple[np.ndarray, float, bool, bool]:
+        # Compute the straight-line endpoint first (base logic: steer + bounds clamp).
+        q_end, travel, collision_free, reached_target = super().rollout_edge(
+            q_from, q_target, max_extension
+        )
+
+        # If the base already rejected the edge, or the endpoint didn't move, there
+        # is nothing to project.
+        if not collision_free or travel < 1e-10:
+            return q_end, travel, collision_free, reached_target
+
+        # Rewiring calls (max_extension is None) operate on already-accepted nodes,
+        # so we skip the projection there to avoid displacing known-good positions.
+        if max_extension is None:
+            return q_end, travel, collision_free, reached_target
+
+        # Check whether the new endpoint lands inside the safety shell.
+        cdf_dist, grad = self.get_cdf_data(q_end)
+        if cdf_dist >= self.safety_margin_c_space:
+            # Already outside the shell -- nothing to do.
+            return q_end, travel, collision_free, reached_target
+
+        # Project q_end outward to the safety shell boundary.
+        # grad points away from the nearest collision boundary (unit vector),
+        # so adding (margin - dist) * grad moves the point to the shell surface.
+        q_projected = q_end + (self.safety_margin_c_space - cdf_dist) * grad
+        q_projected = self.clamp_to_bounds(q_projected).astype(np.float32)
+
+        # Re-validate the modified chord q_from → q_projected.
+        collision_free_proj = self.is_edge_collision_free(q_from, q_projected)
+        if not collision_free_proj:
+            # The projected chord cuts an obstacle; discard the extension entirely.
+            return q_projected, float(euclidean(q_from, q_projected)), False, False
+
+        new_travel = float(euclidean(q_from, q_projected))
+        reached_target_proj = euclidean(q_projected, q_target) <= 1e-6
+        return q_projected, new_travel, True, reached_target_proj
+
+
+def _matplotlib_backend_is_interactive() -> bool:
+    """True if the GUI can be shown/updated (not file-only or notebook inline)."""
+    name = plt.get_backend().lower()
+    if name in ("agg", "svg", "pdf", "ps", "pgf", "template"):
+        return False
+    if "inline" in name:
+        return False
+    return True
+
+
+class LiveTreeVisualizer:
+    def __init__(
+        self,
+        cdf: CDF2D,
+        obj_list,
+        start: np.ndarray,
+        goal: np.ndarray,
+        planner_name: str,
+        update_every: int = 1,
+        pause_sec: float = 0.001,
+    ) -> None:
+        self.update_every = max(1, int(update_every))
+        self.pause_sec = max(0.0, float(pause_sec))
+        self.title_prefix = planner_name
+        self.backend = plt.get_backend().lower()
+        self.interactive_backend = _matplotlib_backend_is_interactive()
+        self.edge_artists: Dict[int, Any] = {}
+
+        plt.ion()
+        self.fig, self.ax = plt.subplots(figsize=(9, 8))
+        cdf.plot_cdf(self.ax, obj_list)
+
+        self.ax.plot(start[0], start[1], "go", markersize=8, label="Start")
+        self.ax.plot(goal[0], goal[1], "bo", markersize=8, label="Goal")
+        self.sample_artist, = self.ax.plot(
+            [], [], marker="x", markersize=8, linestyle="None", color="tab:red", label="Current sample"
+        )
+        self.raw_sample_artist, = self.ax.plot(
+            [],
+            [],
+            marker="o",
+            markersize=6,
+            markerfacecolor="none",
+            markeredgecolor="darkorange",
+            linestyle="None",
+            label="Raw sample",
+        )
+        self.raw_link_artist, = self.ax.plot(
+            [],
+            [],
+            linestyle="--",
+            linewidth=1.0,
+            color="darkorange",
+            alpha=0.8,
+            label="Projection",
+        )
+        self.ax.legend(loc="upper right", fontsize=9)
+        self.fig.tight_layout()
+        self.fig.canvas.draw_idle()
+        if self.interactive_backend:
+            self.fig.canvas.flush_events()
+
+    def _maybe_draw_raw_projection(self, q_target: np.ndarray, sampling: Dict[str, Any]) -> None:
+        raw_sample = sampling.get("raw_sample")
+        if raw_sample is None:
+            self.raw_sample_artist.set_data([], [])
+            self.raw_link_artist.set_data([], [])
+            return
+        raw_sample = np.asarray(raw_sample, dtype=np.float32)
+        if np.linalg.norm(raw_sample - q_target) < 1e-7:
+            self.raw_sample_artist.set_data([], [])
+            self.raw_link_artist.set_data([], [])
+            return
+        self.raw_sample_artist.set_data([raw_sample[0]], [raw_sample[1]])
+        self.raw_link_artist.set_data([raw_sample[0], q_target[0]], [raw_sample[1], q_target[1]])
+
+    def on_step(self, event: Dict[str, Any]) -> None:
+        should_draw = (event["iteration"] % self.update_every) == 0
+        if not should_draw and event.get("goal_event") is None:
+            return
+
+        if event["accepted"]:
+            new_idx = int(event["new_node_idx"])
+            parent_q = np.asarray(event["new_parent_q"], dtype=np.float32)
+            node_q = np.asarray(event["new_node_q"], dtype=np.float32)
+            edge, = self.ax.plot(
+                [parent_q[0], node_q[0]],
+                [parent_q[1], node_q[1]],
+                color="dimgray",
+                linewidth=0.7,
+                alpha=0.5,
+            )
+            self.edge_artists[new_idx] = edge
+
+            for rw in event["rewired_nodes"]:
+                node_idx = int(rw["node_idx"])
+                node_q = np.asarray(rw["node_q"], dtype=np.float32)
+                parent_q = np.asarray(rw["new_parent_q"], dtype=np.float32)
+                edge = self.edge_artists.get(node_idx)
+                if edge is None:
+                    edge, = self.ax.plot([], [], color="tab:orange", linewidth=1.0, alpha=0.85)
+                    self.edge_artists[node_idx] = edge
+                edge.set_data([parent_q[0], node_q[0]], [parent_q[1], node_q[1]])
+                edge.set_color("tab:orange")
+                edge.set_linewidth(1.0)
+                edge.set_alpha(0.85)
+
+        goal_event = event.get("goal_event")
+        if goal_event is not None:
+            goal_idx = int(goal_event["goal_idx"])
+            parent_q = np.asarray(goal_event["parent_q"], dtype=np.float32)
+            goal_q = np.asarray(goal_event["goal_q"], dtype=np.float32)
+            edge = self.edge_artists.get(goal_idx)
+            if edge is None:
+                edge, = self.ax.plot([], [], color="tab:green", linewidth=1.1, alpha=0.9)
+                self.edge_artists[goal_idx] = edge
+            edge.set_data([parent_q[0], goal_q[0]], [parent_q[1], goal_q[1]])
+            edge.set_color("tab:green")
+            edge.set_linewidth(1.1)
+            edge.set_alpha(0.9)
+
+        q_target = np.asarray(event["q_target"], dtype=np.float32)
+        sample_color = "tab:green" if event["accepted"] else "tab:red"
+        self.sample_artist.set_data([q_target[0]], [q_target[1]])
+        self.sample_artist.set_color(sample_color)
+        self._maybe_draw_raw_projection(q_target, event["sampling"])
+
+        self.ax.set_title(
+            f"{self.title_prefix} | iter {event['iteration']}/{event['max_iters']} | "
+            f"nodes={event['tree_size']} | rejected={event['discarded_samples']} | "
+            f"rewires={event['total_rewires']}"
+        )
+        self.fig.canvas.draw_idle()
+        if self.interactive_backend:
+            plt.pause(self.pause_sec)
+
+
+def plot_tree(
+    ax,
+    cdf: CDF2D,
+    obj_list,
+    nodes: List[Node],
+    path: Optional[np.ndarray],
+    start: np.ndarray,
+    goal: np.ndarray,
+    title: str,
+) -> None:
+    cdf.plot_cdf(ax, obj_list)
+    for node in nodes:
+        if node.parent is None:
+            continue
+        parent = nodes[node.parent]
+        ax.plot(
+            [parent.q[0], node.q[0]],
+            [parent.q[1], node.q[1]],
+            color="dimgray",
+            linewidth=0.7,
+            alpha=0.5,
+        )
+    if path is not None:
+        ax.plot(path[:, 0], path[:, 1], color="red", linewidth=2.0, label="Path")
+    ax.plot(start[0], start[1], "go", markersize=8, label="Start")
+    ax.plot(goal[0], goal[1], "bo", markersize=8, label="Goal")
+    ax.set_title(title)
+    ax.legend(loc="upper right", fontsize=9)
+
+
+def print_stats(planner_name: str, stats: dict) -> None:
+    print("\n=== RRT* Planning Statistics ===")
+    print(f"planner:                 {planner_name}")
+    print(f"success:                 {stats['success']}")
+    print(f"time_to_first_path_sec:  {stats['time_to_first_path_sec']}")
+    print(f"nodes_to_first_path:     {stats['nodes_to_first_path']}")
+    print(f"final_path_cost:         {stats['final_path_cost']}")
+    print(f"accepted_nodes:          {stats['accepted_nodes']}")
+    print(f"discarded_samples:       {stats['discarded_samples']}")
+    print(f"rejection_rate:          {stats['rejection_rate']:.4f}")
+    print(f"rewires:                 {stats['rewires']}")
+    print(f"first_goal_iteration:    {stats['first_goal_iteration']}")
+    print(f"planning_time_sec:       {stats['planning_time_sec']:.4f}")
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Run Vanilla or CDF-guided RRT* with optional live tree/sampling visualization."
+    )
+    parser.add_argument("--planner", choices=["vanilla", "cdf"], default="cdf")
+    parser.add_argument("--scene", choices=["scene_1", "scene_2"], default="scene_1")
+    parser.add_argument("--start", nargs=2, type=float, metavar=("Q1", "Q2"))
+    parser.add_argument("--goal", nargs=2, type=float, metavar=("Q1", "Q2"))
+
+    parser.add_argument("--seed", type=int, default=1)
+    parser.add_argument("--max-iters", type=int, default=2500)
+    parser.add_argument("--step-size", type=float, default=0.25)
+    parser.add_argument("--goal-threshold", type=float, default=0.25)
+    parser.add_argument("--goal-bias", type=float, default=0.05)
+    parser.add_argument("--neighbor-radius", type=float, default=0.5)
+    parser.add_argument("--edge-resolution", type=float, default=0.05)
+
+    parser.add_argument("--safety-margin-task-space", type=float, default=SAFETY_MARGIN_TASK_SPACE)
+    parser.add_argument("--safety-margin-c-space", type=float, default=SAFETY_MARGIN_C_SPACE)
+    parser.add_argument("--softmin-beta", type=float, default=SOFTMIN_BETA)
+    parser.add_argument("--model-path", type=str, default=None)
+
+    parser.add_argument("--live-viz", action="store_true")
+    parser.add_argument("--viz-update-every", type=int, default=1)
+    parser.add_argument("--viz-pause-sec", type=float, default=0.001)
+    return parser.parse_args()
+
+
+def _resolve_start_goal(args) -> Tuple[np.ndarray, np.ndarray]:
+    default_start, default_goal = SCENE_START_GOAL[args.scene]
+    if args.start is None:
+        start = default_start.copy()
+    else:
+        start = np.asarray(args.start, dtype=np.float32)
+    if args.goal is None:
+        goal = default_goal.copy()
+    else:
+        goal = np.asarray(args.goal, dtype=np.float32)
+    return start, goal
+
+
+def _validate_query_points(planner: RRTStarBase, start: np.ndarray, goal: np.ndarray) -> None:
+    q_min = planner.q_min
+    q_max = planner.q_max
+    if not planner.in_bounds(start):
+        raise SystemExit(
+            f"Error: Start is out of bounds. Expected each joint in [{q_min[0]:.3f}, {q_max[0]:.3f}]."
+        )
+    if not planner.in_bounds(goal):
+        raise SystemExit(
+            f"Error: Goal is out of bounds. Expected each joint in [{q_min[0]:.3f}, {q_max[0]:.3f}]."
+        )
+    if not planner.is_state_collision_free(start):
+        raise SystemExit("Error: Start configuration is in collision.")
+    if not planner.is_state_collision_free(goal):
+        raise SystemExit("Error: Goal configuration is in collision.")
+
+
+def main():
+    args = parse_args()
+    if args.viz_update_every < 1:
+        raise SystemExit("Error: --viz-update-every must be >= 1.")
+    if args.viz_pause_sec < 0.0:
+        raise SystemExit("Error: --viz-pause-sec must be >= 0.")
+
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    cdf = CDF2D(device)
+    obj_list = make_scene(args.scene, device)
+    q_min = cdf.q_min.detach().cpu().numpy().astype(np.float32)
+    q_max = cdf.q_max.detach().cpu().numpy().astype(np.float32)
+    start, goal = _resolve_start_goal(args)
+
+    if args.planner == "vanilla":
+        planner_name = "Vanilla_RRTStar"
+        planner: RRTStarBase = Vanilla_RRTStar(
+            cdf=cdf,
+            obj_list=obj_list,
+            q_min=q_min,
+            q_max=q_max,
+            step_size=args.step_size,
+            goal_threshold=args.goal_threshold,
+            goal_bias=args.goal_bias,
+            neighbor_radius=args.neighbor_radius,
+            edge_resolution=args.edge_resolution,
+        )
+    else:
+        planner_name = "CDF_RRTStar"
+        planner = CDF_RRTStar(
+            cdf=cdf,
+            obj_list=obj_list,
+            q_min=q_min,
+            q_max=q_max,
+            step_size=args.step_size,
+            goal_threshold=args.goal_threshold,
+            goal_bias=args.goal_bias,
+            neighbor_radius=args.neighbor_radius,
+            edge_resolution=args.edge_resolution,
+            safety_margin_task_space=args.safety_margin_task_space,
+            safety_margin_c_space=args.safety_margin_c_space,
+            softmin_beta=args.softmin_beta,
+            model_path=args.model_path,
+        )
+
+    _validate_query_points(planner, start, goal)
+
+    callback = None
+    if args.live_viz:
+        viz = LiveTreeVisualizer(
+            cdf=cdf,
+            obj_list=obj_list,
+            start=start,
+            goal=goal,
+            planner_name=planner_name,
+            update_every=args.viz_update_every,
+            pause_sec=args.viz_pause_sec,
+        )
+        callback = viz.on_step
+
+    print("=== Live RRT* Runner ===")
+    print(f"planner: {planner_name}")
+    print(f"scene: {args.scene}")
+    print(f"seed: {args.seed}, max_iters: {args.max_iters}")
+    print(
+        f"start: [{start[0]:.3f}, {start[1]:.3f}] | "
+        f"goal: [{goal[0]:.3f}, {goal[1]:.3f}] | "
+        f"live_viz: {args.live_viz}"
+    )
+    nodes, path, stats = planner.plan(
+        start=start,
+        goal=goal,
+        max_iters=args.max_iters,
+        seed=args.seed,
+        callback=callback,
+    )
+
+    print_stats(planner_name, stats)
+
+    fig, ax = plt.subplots(figsize=(9, 8))
+    plot_tree(
+        ax=ax,
+        cdf=cdf,
+        obj_list=obj_list,
+        nodes=nodes,
+        path=path,
+        start=start,
+        goal=goal,
+        title=f"{args.scene}: {planner_name} (Final)",
+    )
+    plt.tight_layout()
+    plt.ioff()
+    if _matplotlib_backend_is_interactive():
+        plt.show()
+    else:
+        plt.show(block=False)
+        plt.close("all")
+
+
+if __name__ == "__main__":
+    main()

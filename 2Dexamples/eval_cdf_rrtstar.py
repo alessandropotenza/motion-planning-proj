@@ -14,7 +14,8 @@ import torch
 from cdf import CDF2D
 from cdf_guided_rrtstar import (
     CDF_RRTStar,
-    SAFETY_MARGIN,
+    SAFETY_MARGIN_TASK_SPACE,
+    SAFETY_MARGIN_C_SPACE,
     SOFTMIN_BETA,
     Vanilla_RRTStar,
 )
@@ -39,7 +40,8 @@ def parse_args():
     parser.add_argument("--neighbor-radius", type=float, default=0.5)
     parser.add_argument("--edge-resolution", type=float, default=0.05)
 
-    parser.add_argument("--safety-margin", type=float, default=SAFETY_MARGIN)
+    parser.add_argument("--safety-margin-task-space", type=float, default=SAFETY_MARGIN_TASK_SPACE)
+    parser.add_argument("--safety-margin-c-space", type=float, default=SAFETY_MARGIN_C_SPACE)
     parser.add_argument("--softmin-beta", type=float, default=SOFTMIN_BETA)
     return parser.parse_args()
 
@@ -108,7 +110,8 @@ def evaluate_scene(scene_name: str, args):
         goal_bias=0.10,
         neighbor_radius=args.neighbor_radius,
         edge_resolution=args.edge_resolution,
-        safety_margin=args.safety_margin,
+        safety_margin_task_space=args.safety_margin_task_space,
+        safety_margin_c_space=args.safety_margin_c_space,
         softmin_beta=args.softmin_beta,
     )
 
