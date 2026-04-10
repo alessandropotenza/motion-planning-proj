@@ -254,4 +254,8 @@ if __name__ == "__main__":
         plt.title(f'CDF ({args.mode})')
         plt.xlabel('q1')
         plt.ylabel('q2')
+        from pathlib import Path
+        save_dir = Path("../figs/training")
+        save_dir.mkdir(parents=True, exist_ok=True)
+        plt.savefig(save_dir / f"cdf_{args.mode}.png")
         plt.show()
