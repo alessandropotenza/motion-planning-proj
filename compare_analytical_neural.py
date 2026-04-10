@@ -40,45 +40,45 @@ net = torch.load(os.path.join(script_dir, 'model.pth'), weights_only=False)
 net.eval()
 
 obstacles = [
-    # Circle(center=torch.tensor([-3.0, -1.0]), radius=0.01, device=device),
-    # Circle(center=torch.tensor([-3.0, 0.0]), radius=0.01, device=device),
-    # Circle(center=torch.tensor([-3.0, 1.0]), radius=0.01, device=device),
-    # Circle(center=torch.tensor([-2.0, -2.0]), radius=0.01, device=device),
+    Circle(center=torch.tensor([-3.0, -1.0]), radius=0.01, device=device),
+    Circle(center=torch.tensor([-3.0, 0.0]), radius=0.01, device=device),
+    Circle(center=torch.tensor([-3.0, 1.0]), radius=0.01, device=device),
+    Circle(center=torch.tensor([-2.0, -2.0]), radius=0.01, device=device),
     Circle(center=torch.tensor([-2.0, -1.0]), radius=0.01, device=device),
-    # Circle(center=torch.tensor([-2.0, 0.0]), radius=0.01, device=device),
-    # Circle(center=torch.tensor([-2.0, 1.0]), radius=0.01, device=device),
-    # Circle(center=torch.tensor([-2.0, 2.0]), radius=0.01, device=device),
-    # Circle(center=torch.tensor([-1.0, -3.0]), radius=0.01, device=device),
-    # Circle(center=torch.tensor([-1.0, -2.0]), radius=0.01, device=device),
-    # Circle(center=torch.tensor([-1.0, -1.0]), radius=0.01, device=device),
-    # Circle(center=torch.tensor([-1.0, 0.0]), radius=0.01, device=device),
-    # Circle(center=torch.tensor([-1.0, 1.0]), radius=0.01, device=device),
-    # Circle(center=torch.tensor([-1.0, 2.0]), radius=0.01, device=device),
-    # Circle(center=torch.tensor([-1.0, 3.0]), radius=0.01, device=device),
-    # Circle(center=torch.tensor([0.0, -4.0]), radius=0.01, device=device),
-    # Circle(center=torch.tensor([0.0, -3.0]), radius=0.01, device=device),
-    # Circle(center=torch.tensor([0.0, -2.0]), radius=0.01, device=device),
-    # Circle(center=torch.tensor([0.0, -1.0]), radius=0.01, device=device),
-    # Circle(center=torch.tensor([0.0, 0.0]), radius=0.01, device=device),
-    # Circle(center=torch.tensor([0.0, 1.0]), radius=0.01, device=device),
-    # Circle(center=torch.tensor([0.0, 2.0]), radius=0.01, device=device),
-    # Circle(center=torch.tensor([0.0, 3.0]), radius=0.01, device=device),
-    # Circle(center=torch.tensor([0.0, 4.0]), radius=0.01, device=device),
-    # Circle(center=torch.tensor([1.0, -3.0]), radius=0.01, device=device),
-    # Circle(center=torch.tensor([1.0, -2.0]), radius=0.01, device=device),
-    # Circle(center=torch.tensor([1.0, -1.0]), radius=0.01, device=device),
-    # Circle(center=torch.tensor([1.0, 0.0]), radius=0.01, device=device),
-    # Circle(center=torch.tensor([1.0, 1.0]), radius=0.01, device=device),
-    # Circle(center=torch.tensor([1.0, 2.0]), radius=0.01, device=device),
-    # Circle(center=torch.tensor([1.0, 3.0]), radius=0.01, device=device),
-    # Circle(center=torch.tensor([2.0, -2.0]), radius=0.01, device=device),
-    # Circle(center=torch.tensor([2.0, -1.0]), radius=0.01, device=device),
-    # Circle(center=torch.tensor([2.0, 0.0]), radius=0.01, device=device),
-    # Circle(center=torch.tensor([2.0, 1.0]), radius=0.01, device=device),
-    # Circle(center=torch.tensor([2.0, 2.0]), radius=0.01, device=device),
-    # Circle(center=torch.tensor([3.0, -1.0]), radius=0.01, device=device),
-    # Circle(center=torch.tensor([3.0, 0.0]), radius=0.01, device=device),
-    # Circle(center=torch.tensor([3.0, 1.0]), radius=0.01, device=device),
+    Circle(center=torch.tensor([-2.0, 0.0]), radius=0.01, device=device),
+    Circle(center=torch.tensor([-2.0, 1.0]), radius=0.01, device=device),
+    Circle(center=torch.tensor([-2.0, 2.0]), radius=0.01, device=device),
+    Circle(center=torch.tensor([-1.0, -3.0]), radius=0.01, device=device),
+    Circle(center=torch.tensor([-1.0, -2.0]), radius=0.01, device=device),
+    Circle(center=torch.tensor([-1.0, -1.0]), radius=0.01, device=device),
+    Circle(center=torch.tensor([-1.0, 0.0]), radius=0.01, device=device),
+    Circle(center=torch.tensor([-1.0, 1.0]), radius=0.01, device=device),
+    Circle(center=torch.tensor([-1.0, 2.0]), radius=0.01, device=device),
+    Circle(center=torch.tensor([-1.0, 3.0]), radius=0.01, device=device),
+    Circle(center=torch.tensor([0.0, -4.0]), radius=0.01, device=device),
+    Circle(center=torch.tensor([0.0, -3.0]), radius=0.01, device=device),
+    Circle(center=torch.tensor([0.0, -2.0]), radius=0.01, device=device),
+    Circle(center=torch.tensor([0.0, -1.0]), radius=0.01, device=device),
+    Circle(center=torch.tensor([0.0, 0.0]), radius=0.01, device=device),
+    Circle(center=torch.tensor([0.0, 1.0]), radius=0.01, device=device),
+    Circle(center=torch.tensor([0.0, 2.0]), radius=0.01, device=device),
+    Circle(center=torch.tensor([0.0, 3.0]), radius=0.01, device=device),
+    Circle(center=torch.tensor([0.0, 4.0]), radius=0.01, device=device),
+    Circle(center=torch.tensor([1.0, -3.0]), radius=0.01, device=device),
+    Circle(center=torch.tensor([1.0, -2.0]), radius=0.01, device=device),
+    Circle(center=torch.tensor([1.0, -1.0]), radius=0.01, device=device),
+    Circle(center=torch.tensor([1.0, 0.0]), radius=0.01, device=device),
+    Circle(center=torch.tensor([1.0, 1.0]), radius=0.01, device=device),
+    Circle(center=torch.tensor([1.0, 2.0]), radius=0.01, device=device),
+    Circle(center=torch.tensor([1.0, 3.0]), radius=0.01, device=device),
+    Circle(center=torch.tensor([2.0, -2.0]), radius=0.01, device=device),
+    Circle(center=torch.tensor([2.0, -1.0]), radius=0.01, device=device),
+    Circle(center=torch.tensor([2.0, 0.0]), radius=0.01, device=device),
+    Circle(center=torch.tensor([2.0, 1.0]), radius=0.01, device=device),
+    Circle(center=torch.tensor([2.0, 2.0]), radius=0.01, device=device),
+    Circle(center=torch.tensor([3.0, -1.0]), radius=0.01, device=device),
+    Circle(center=torch.tensor([3.0, 0.0]), radius=0.01, device=device),
+    Circle(center=torch.tensor([3.0, 1.0]), radius=0.01, device=device),
 ]
 obstacle_points = []
 samples = 1
@@ -96,154 +96,177 @@ obstacle_points = torch.cat(obstacle_points, dim=0)
 #     device=device
 # )
 
-### Plotting the obstacle points
-plt.xlim(-4, 4)
-plt.ylim(-4, 4)
-### Draw circle of radius 4 at center
-circle = plt.Circle((0, 0), 4, color='black', fill=False, linestyle='--')
-plt.gca().add_artist(circle)
-
-plt.scatter(obstacle_points[:, 0].cpu().numpy(), obstacle_points[:, 1].cpu().numpy(), s=1)
-plt.title('Obstacle Surface Points')
-plt.xlabel('x')
-plt.ylabel('y')
-# plt.axis('equal')
-plt.show()
+# Skip individual plots - we'll create a combined figure below
 
 n = train_cdf.cdf.nbData
-q = train_cdf.cdf.create_grid_torch(n).to(device)
-q.requires_grad = True
+q_base = train_cdf.cdf.create_grid_torch(n).to(device)
 
-q_proj = q.clone()
-for i in range(100):
-    c_dist, grad = inference(obstacle_points, q_proj, net)
-    c_dist = c_dist.reshape(len(obstacle_points), n, n)
-    c_dist_min, min_idx = c_dist.min(dim=0)
+# Create output directory for figures
+os.makedirs('figs', exist_ok=True)
 
-    grad = grad.reshape(len(obstacle_points), n, n, 2)
-    grad = grad.permute(1, 2, 0, 3)  # (n, n, len(obstacle_points), 2)
-    min_idx_exp = min_idx.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, 1, 2)
-    grad_min = grad.gather(2, min_idx_exp).squeeze(2)
+# ================================================================================
+# PROCESS EACH OBSTACLE INDIVIDUALLY
+# ================================================================================
 
-    q_proj = train_cdf.cdf.projection(
-        q_proj,
-        c_dist_min.reshape(-1),
-        grad_min.reshape(-1, 2),
-    )
-    q_proj = ((q_proj+np.pi) % (2*np.pi)) - np.pi  # Wrap around to keep within [-pi, pi]
-    # print(q_proj.shape)
-# plot
-
-import matplotlib.pyplot as plt
-c_dist_raw, grad = inference(obstacle_points, q, net)
-c_dist_reordered = c_dist_raw.reshape(len(obstacle_points), n, n)
-c_dist = c_dist_reordered.min(dim=0)[0]
-plt.contourf(q[:,0].detach().cpu().numpy().reshape(n,n), q[:,1].detach().cpu().numpy().reshape(n,n), c_dist.cpu().detach().numpy().reshape(n,n), levels=20)
-plt.scatter(q_proj[:,0].detach().cpu().numpy(), q_proj[:,1].detach().cpu().numpy(), c='r', s=1)
-plt.title('CDF')
-plt.xlabel('x')
-plt.ylabel('y')
-plt.show()
-
-# Plot q_proj in task space with obstacle points - draw full robots
-obs_np = obstacle_points.detach().cpu().numpy()
-fig, ax = plt.subplots(figsize=(8,8))
-ax.scatter(obs_np[:,0], obs_np[:,1], s=50, c='blue', label='obstacle points', marker='x')
-
-# Sample a subset of q_proj configurations to avoid overcrowding
-subset_indices = torch.randperm(len(q_proj))[:100]  # random 100 configurations
-# for i in subset_indices:
-#     q_config = q_proj[i].unsqueeze(0).detach().cpu().numpy()
-robot_plot2D.plot_2d_manipulators(joint_angles_batch=q_proj[subset_indices].detach().cpu().numpy(), ax=ax, color='red', show_start_end=False, show_eef_traj=False, alpha=0.1)
-
-ax.set_title('Projected configurations in task space')
-ax.set_xlabel('x')
-ax.set_ylabel('y')
-ax.axis('equal')
-ax.legend()
-plt.show()
-
-
-
-
-
-
-# device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-cdf = CDF2D(device)
-
-# fig, ax = plt.subplots(figsize=(10, 8))  # Create the third plot
-
-cdf.plot_cdf(ax,obstacles)
-q_proj_analytic = q.clone()
-for i in range(1000):
-    c_dist, grad = cdf.calculate_cdf(q_proj_analytic, obstacles, "online_computation", return_grad=True)
+for obs_idx, current_obstacle in enumerate(obstacles):
+    print(f"\n{'='*80}")
+    print(f"Processing obstacle {obs_idx + 1}/{len(obstacles)}: Center={current_obstacle.center.cpu().numpy()}, Radius={current_obstacle.radius}")
+    print(f"{'='*80}")
     
-    # c_dist shape: (num_queries,), grad shape: (num_queries, 2)
-    q_proj_analytic = q_proj_analytic - 0.1 * c_dist.unsqueeze(-1) * grad  # Gradient descent step with learning rate
+    # Get obstacle points for this single obstacle
+    current_obstacle_points = current_obstacle.sample_surface(1)
+    
+    q = q_base.clone().requires_grad_(True)
+    
+    # Neural network projection
+    q_proj = q.clone()
+    for i in range(100):
+        c_dist, grad = inference(current_obstacle_points, q_proj, net)
+        c_dist = c_dist.reshape(len(current_obstacle_points), n, n)
+        c_dist_min, min_idx = c_dist.min(dim=0)
 
-# Plot q_proj_analytic in task space with obstacle points - draw full robots (analytical CDF)
-obs_np = obstacle_points.detach().cpu().numpy()
-# fig, ax = plt.subplots(figsize=(8,8))
-# ax.scatter(obs_np[:,0], obs_np[:,1], s=50, c='blue', label='obstacle points', marker='x')
+        grad = grad.reshape(len(current_obstacle_points), n, n, 2)
+        grad = grad.permute(1, 2, 0, 3)
+        min_idx_exp = min_idx.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, 1, 2)
+        grad_min = grad.gather(2, min_idx_exp).squeeze(2)
 
-# Sample a subset of q_proj_analytic configurations to avoid overcrowding
-subset_indices_cdf = torch.randperm(len(q_proj_analytic))[:100]  # random 100 configurations
-robot_plot2D.plot_2d_manipulators(joint_angles_batch=q_proj_analytic[subset_indices_cdf].detach().cpu().numpy(), ax=ax, color='green', show_start_end=False, show_eef_traj=False, alpha=0.1)
+        q_proj = train_cdf.cdf.projection(
+            q_proj,
+            c_dist_min.reshape(-1),
+            grad_min.reshape(-1, 2),
+        )
+        q_proj = ((q_proj+np.pi) % (2*np.pi)) - np.pi
 
-ax.set_title('Analytical CDF Projected configurations in task space')
-ax.set_xlabel('x')
-ax.set_ylabel('y')
-ax.axis('equal')
-ax.legend()
-plt.show()
+    # Get neural network C-space field
+    q_temp = q_base.clone().requires_grad_(True)
+    c_dist_raw, grad = inference(current_obstacle_points, q_temp, net)
+    c_dist_reordered = c_dist_raw.reshape(len(current_obstacle_points), n, n)
+    c_dist_nn = c_dist_reordered.min(dim=0)[0]
 
-d_result = cdf.calculate_cdf(cdf.Q_grid.clone().detach().requires_grad_(True), obstacles, "online_computation", return_grad=True)
-d = d_result[0].detach().cpu().numpy()
-grad = d_result[1].detach().cpu().numpy()
+    # Analytical CDF projection
+    cdf = CDF2D(device)
+    current_obstacle_list = [current_obstacle]
+    
+    q_proj_analytic = q_base.clone().requires_grad_(True)
+    for i in range(1000):
+        c_dist, grad = cdf.calculate_cdf(q_proj_analytic, current_obstacle_list, "online_computation", return_grad=True)
+        q_proj_analytic = q_proj_analytic - 0.1 * c_dist.unsqueeze(-1) * grad
+        q_proj_analytic = q_proj_analytic.detach().requires_grad_(True)  # Detach and re-enable gradients for next iteration
 
-# Create a new figure for C-space CDF plot
-fig, ax = plt.subplots(figsize=(10, 8))
-ax.set_aspect('equal', 'box')  # Make sure the pixels are square
-ax.set_xlim(-np.pi, np.pi)
-ax.set_ylim(-np.pi, np.pi) 
+    # Get analytical C-space field  
+    q_grid_with_grad = cdf.Q_grid.clone().requires_grad_(True)
+    d_result = cdf.calculate_cdf(q_grid_with_grad, current_obstacle_list, "online_computation", return_grad=True)
+    d_analytical = d_result[0].detach().cpu().numpy()
 
-ax.set_title('Configuration space', size=30)  # Add a title to your plot
-ax.set_xlabel('q1', size=20)
-ax.set_ylabel('q2', size=20)
-axis_limits = (-np.pi, np.pi)  # Set the limits for both axes to be the same
-ax.set_xlim(axis_limits)
-ax.set_ylim(axis_limits)
-ax.tick_params(axis='both', labelsize=20)
+    # ================================================================================
+    # CREATE COMBINED FIGURE FOR THIS OBSTACLE
+    # ================================================================================
+    fig = plt.figure(figsize=(20, 14))
+    gs = gridspec.GridSpec(3, 3, figure=fig, hspace=0.35, wspace=0.3)
 
-# ax.contour(cdf.q0, cdf.q1, d.reshape(cdf.nbData, cdf.nbData), levels=[0], linewidths=6, colors='black', alpha=1.0)
-ct = ax.contourf(cdf.q0, cdf.q1, d.reshape(cdf.nbData, cdf.nbData), levels=8, linewidths=1, cmap='coolwarm')
-# ax.clabel(ct, inline=False, fontsize=15, colors='black', fmt='%.1f')
-ax.scatter(q_proj_analytic[:, 0].detach().cpu().numpy(), q_proj_analytic[:, 1].detach().cpu().numpy(), c='green', s=5, alpha=0.6, label='CDF projections')
-ax.legend(fontsize=12)
+    # Plot 1: Obstacle Surface Points
+    ax1 = fig.add_subplot(gs[0, 0])
+    ax1.set_xlim(-4, 4)
+    ax1.set_ylim(-4, 4)
+    circle = plt.Circle((0, 0), 4, color='black', fill=False, linestyle='--', linewidth=2)
+    ax1.add_artist(circle)
+    ax1.scatter(current_obstacle_points[:, 0].cpu().numpy(), current_obstacle_points[:, 1].cpu().numpy(), s=100, alpha=0.8, color='red', marker='o')
+    ax1.set_title('Obstacle Surface Points', fontsize=12, fontweight='bold')
+    ax1.set_xlabel('x', fontsize=10)
+    ax1.set_ylabel('y', fontsize=10)
+    ax1.set_aspect('equal')
+    ax1.grid(True, alpha=0.3)
 
-plt.show()
+    # Plot 2: Neural Network C-space CDF with projections
+    ax2 = fig.add_subplot(gs[0, 1])
+    contour2 = ax2.contourf(q[:, 0].detach().cpu().numpy().reshape(n, n), q[:, 1].detach().cpu().numpy().reshape(n, n), c_dist_nn.detach().cpu().numpy().reshape(n, n), levels=15, cmap='RdYlBu_r')
+    ax2.scatter(q_proj[:, 0].detach().cpu().numpy(), q_proj[:, 1].detach().cpu().numpy(), c='red', s=2, alpha=0.4, label='NN projections')
+    ax2.set_title('Neural Network CDF (C-space)', fontsize=12, fontweight='bold')
+    ax2.set_xlabel('q1', fontsize=10)
+    ax2.set_ylabel('q2', fontsize=10)
+    ax2.set_xlim(-np.pi, np.pi)
+    ax2.set_ylim(-np.pi, np.pi)
+    ax2.set_aspect('equal', 'box')
+    ax2.legend(loc='upper right', fontsize=9)
+    plt.colorbar(contour2, ax=ax2)
 
+    # Plot 3: Analytical C-space CDF with projections
+    ax3 = fig.add_subplot(gs[0, 2])
+    contour3 = ax3.contourf(cdf.q0, cdf.q1, d_analytical.reshape(cdf.nbData, cdf.nbData), levels=15, cmap='RdYlBu_r')
+    ax3.contour(cdf.q0, cdf.q1, d_analytical.reshape(cdf.nbData, cdf.nbData), levels=[0], linewidths=3, colors='black', alpha=0.8)
+    ax3.scatter(q_proj_analytic[:, 0].detach().cpu().numpy(), q_proj_analytic[:, 1].detach().cpu().numpy(), c='green', s=2, alpha=0.4, label='Analytical projections')
+    ax3.set_title('Analytical CDF (C-space)', fontsize=12, fontweight='bold')
+    ax3.set_xlabel('q1', fontsize=10)
+    ax3.set_ylabel('q2', fontsize=10)
+    ax3.set_xlim(-np.pi, np.pi)
+    ax3.set_ylim(-np.pi, np.pi)
+    ax3.set_aspect('equal', 'box')
+    ax3.legend(loc='upper right', fontsize=9)
+    plt.colorbar(contour3, ax=ax3)
 
-fig, ax = plt.subplots(figsize=(10, 8))
-### Set x and y limits to be +- pi, and make sure the aspect ratio is equal
-ax.set_aspect('equal', 'box')  # Make sure the pixels are square
-ax.set_xlim(-np.pi, np.pi)
-ax.set_ylim(-np.pi, np.pi) 
-title = ""
-for i, obs in enumerate(obstacles):
-    title += f"C{i}: {obs.center.cpu().numpy()}, R{i}: {obs.radius}, "
+    # Plot 4: Neural Network Task Space (row 2, cols 0-1)
+    ax4 = fig.add_subplot(gs[1, 0:2])
+    obs_np = current_obstacle_points.detach().cpu().numpy()
+    ax4.scatter(obs_np[:, 0], obs_np[:, 1], s=200, c='red', label='obstacle points', marker='o', linewidths=2, edgecolors='darkred')
+    ax4.set_xlim(-4, 4)
+    ax4.set_ylim(-4, 4)
+    circle4 = plt.Circle((0, 0), 4, color='black', fill=False, linestyle='--', linewidth=2)
+    ax4.add_artist(circle4)
+    subset_indices = torch.randperm(len(q_proj))[:50]
+    robot_plot2D.plot_2d_manipulators(joint_angles_batch=q_proj[subset_indices].detach().cpu().numpy(), ax=ax4, color='red', show_start_end=False, show_eef_traj=False, alpha=0.08)
+    ax4.set_title('NN Projected Configs (Task Space)', fontsize=12, fontweight='bold')
+    ax4.set_xlabel('x', fontsize=10)
+    ax4.set_ylabel('y', fontsize=10)
+    ax4.set_aspect('equal')
+    ax4.grid(True, alpha=0.3)
+    ax4.legend(fontsize=9)
 
-ax.legend(fontsize=12)
-ax.set_title(title, size=10) # Add a title to your plot
-ax.scatter(q_proj[:, 0].detach().cpu().numpy(), q_proj[:, 1].detach().cpu().numpy(), c='red', s=5, alpha=0.6, label='NN CDF projections')
-ax.scatter(q_proj_analytic[:, 0].detach().cpu().numpy(), q_proj_analytic[:, 1].detach().cpu().numpy(), c='green', s=5, alpha=0.6, label='CDF projections')
-ax.legend(fontsize=12)
-### Save figure to dir figs, and ensure figure has unique
-figs_dir = "./figs"
-os.makedirs(figs_dir, exist_ok=True)
-num = os.listdir(figs_dir)
-fig_path = os.path.join(figs_dir, f'projection_plot_{len(num)}.png')
-fig.savefig(fig_path)
-plt.show()
+    # Plot 5: Analytical Task Space (row 2, col 2)
+    ax5 = fig.add_subplot(gs[1, 2])
+    ax5.scatter(obs_np[:, 0], obs_np[:, 1], s=200, c='red', label='obstacle points', marker='o', linewidths=2, edgecolors='darkred')
+    ax5.set_xlim(-4, 4)
+    ax5.set_ylim(-4, 4)
+    circle5 = plt.Circle((0, 0), 4, color='black', fill=False, linestyle='--', linewidth=2)
+    ax5.add_artist(circle5)
+    subset_indices_cdf = torch.randperm(len(q_proj_analytic))[:50]
+    robot_plot2D.plot_2d_manipulators(joint_angles_batch=q_proj_analytic[subset_indices_cdf].detach().cpu().numpy(), ax=ax5, color='green', show_start_end=False, show_eef_traj=False, alpha=0.08)
+    ax5.set_title('Analytical Projected Configs (Task Space)', fontsize=12, fontweight='bold')
+    ax5.set_xlabel('x', fontsize=10)
+    ax5.set_ylabel('y', fontsize=10)
+    ax5.set_aspect('equal')
+    ax5.grid(True, alpha=0.3)
+    ax5.legend(fontsize=9)
 
+    # Plot 6: Combined comparison in C-space (row 3, spans all columns)
+    ax6 = fig.add_subplot(gs[2, :])
+    # contour6 = ax6.contourf(cdf.q0, cdf.q1, d_analytical.reshape(cdf.nbData, cdf.nbData), levels=15, cmap='coolwarm', alpha=0.8)
+    # ax6.contour(cdf.q0, cdf.q1, d_analytical.reshape(cdf.nbData, cdf.nbData), levels=[0], linewidths=4, colors='black', alpha=1.0, linestyles='solid')
+    ax6.scatter(q_proj[:, 0].detach().cpu().numpy(), q_proj[:, 1].detach().cpu().numpy(), c='red', s=3, alpha=0.3, label='NN Projections')
+    ax6.scatter(q_proj_analytic[:, 0].detach().cpu().numpy(), q_proj_analytic[:, 1].detach().cpu().numpy(), c='lime', s=3, alpha=0.3, label='Analytical Projections')
+    ax6.set_title('Comparison: Neural Network vs Analytical CDF Projections', fontsize=14, fontweight='bold')
+    ax6.set_xlabel('q1', fontsize=12)
+    ax6.set_ylabel('q2', fontsize=12)
+    ax6.set_xlim(-np.pi, np.pi)
+    ax6.set_ylim(-np.pi, np.pi)
+    ax6.set_aspect('equal', 'box')
+    ax6.legend(loc='upper right', fontsize=11, framealpha=0.95)
+    # plt.colorbar(contour6, ax=ax6, label='Distance to obstacles')
 
+    obstacle_center = current_obstacle.center.cpu().numpy()
+    plt.suptitle(f'Obstacle {obs_idx + 1}: Center=({obstacle_center[0]:.2f}, {obstacle_center[1]:.2f})', fontsize=16, fontweight='bold', y=0.995)
+    plt.tight_layout()
+
+    # Save the figure for this obstacle
+    output_path = f'figs/comparison_obstacle_{obs_idx:03d}.png'
+    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    print(f"✓ Saved comparison plot to {output_path}")
+    plt.close()
+    
+    # Clear memory
+    del q_proj, q_proj_analytic, c_dist_nn, d_analytical, cdf
+    torch.cuda.empty_cache() if torch.cuda.is_available() else None
+
+print(f"\n{'='*80}")
+print(f"✓ All {len(obstacles)} obstacles processed successfully!")
+print(f"✓ Figures saved to figs/ directory")
+print(f"{'='*80}")
