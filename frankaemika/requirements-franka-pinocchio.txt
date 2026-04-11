@@ -1,0 +1,25 @@
+# Optional dependencies for `plan_and_demo_franka.py --collision-backend pin`
+# (Pinocchio + hpp-fcl / FCL for URDF collision meshes vs workspace obstacles).
+#
+# Installation (conda-forge):
+#
+#   conda install pinocchio -c conda-forge
+#
+# ROS + conda on the same machine
+# -------------------------
+# If you ``source /opt/ros/<distro>/setup.bash``, ROS prepends its Python
+# ``site-packages`` to PYTHONPATH / sys.path. That often loads **ROS's** pinocchio
+# (built against NumPy 1) instead of conda's, causing ``_ARRAY_API`` errors or segfaults
+# under NumPy 2.
+#
+# Fix (pick one):
+#   - Use a terminal where you **only** ``conda activate`` your env (do not source ROS).
+#   - Or: ``unset PYTHONPATH`` after conda activate (removes ROS from the path).
+#   - Or: ``conda install 'numpy<2'`` if you must keep ROS pinocchio.
+#
+# This repo prepends ``sys.prefix/.../site-packages`` before importing pinocchio so
+# the **active** env wins when paths are otherwise ambiguous; you still must not let
+# a broken ROS pinocchio load first if PYTHONPATH forces it.
+#
+# Pip wheels exist for some platforms (package name may be `pin`); ensure collision
+# / hpp-fcl support matches your NumPy major version.

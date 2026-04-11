@@ -26,7 +26,11 @@ class DataGenerator():
         # panda model
         self.panda = PandaLayer(device)
         self.bp_sdf = BPSDF(8,-1.0,1.0,self.panda,device)
-        self.model = torch.load(os.path.join(CUR_DIR,'../../RDF/models/BP_8.pt'))
+        self.model = torch.load(
+            os.path.join(CUR_DIR, '../../RDF/models/BP_8.pt'),
+            map_location=device,
+            weights_only=False,
+        )
         self.q_max = self.panda.theta_max
         self.q_min = self.panda.theta_min
         # device
