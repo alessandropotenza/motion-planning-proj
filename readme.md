@@ -67,6 +67,8 @@ python wik_eval.py
 ```
 to evalute the whole-body inverse kinematics and compare it with baseline approaches.
 
+For joint-space RRT* and CDF-guided RRT* on the Franka (sphere or optional Pinocchio/FCL collision + optional PyBullet playback), from the `frankaemika` folder run `python plan_and_demo_franka.py --help` (see `frankaemika/requirements-franka-pinocchio.txt` for the `pin` backend).
+
 For motion planning, you can run 
 
 ```sh
