@@ -29,7 +29,7 @@ CUR_PATH = os.path.dirname(os.path.realpath(__file__))
 # derive task-space goals via FK when --goal-task is not provided.
 SCENE_DEFAULT_Q: Dict[str, Tuple[np.ndarray, np.ndarray]] = {
     "scene_1": (np.array([-2.0, -1.0], dtype=np.float32), np.array([1.5, 1.2], dtype=np.float32)),
-    "scene_2": (np.array([-2.4, 0.2], dtype=np.float32), np.array([2.3, -0.8], dtype=np.float32)),
+    "scene_2": (np.array([-2.4, 0.2], dtype=np.float32), np.array([2.5, 3.0], dtype=np.float32)),
     "scene_3": (np.array([-0.5, -2.5], dtype=np.float32), np.array([0.5, 2.5], dtype=np.float32)),
     "scene_4": (np.array([-2.0, 1.0], dtype=np.float32), np.array([2.5, 0.5], dtype=np.float32)),
     "scene_5": (np.array([-0.5, -2.5], dtype=np.float32), np.array([0.5, 2.5], dtype=np.float32)),
@@ -890,7 +890,7 @@ def parse_args():
     parser.add_argument("--softmin-beta", type=float, default=50.0)
     parser.add_argument("--wb-model-path", type=str, default=None)
     parser.add_argument("--ee-model-path", type=str, default=None)
-    parser.add_argument("--ee-goal-threshold", type=float, default=0.30)
+    parser.add_argument("--ee-goal-threshold", type=float, default=0.15)
     # parser.add_argument("--ee-goal-threshold", type=float, default=0.15)
 
     parser.add_argument("--no-talkback", action="store_true")

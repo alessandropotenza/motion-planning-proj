@@ -42,7 +42,7 @@ except Exception as exc:  # pragma: no cover - this is for environment diagnosis
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUTPUT_ROOT = PROJECT_ROOT / "2Dexamples" / "outputs" / "eval_ee_goal_rrtstar"
-DEFAULT_WB_MODEL = PROJECT_ROOT / "2Dexamples" / "model.pth"
+DEFAULT_WB_MODEL = PROJECT_ROOT / "2Dexamples" / "model_wb.pth"
 DEFAULT_EE_MODEL = PROJECT_ROOT / "2Dexamples" / "model_ee.pth"
 
 
@@ -68,7 +68,7 @@ class EvalConfig:
     goal_bias: float = 0.10
     neighbor_radius: float = 0.5
     edge_resolution: float = 0.05
-    ee_goal_threshold: float = 0.30
+    ee_goal_threshold: float = 0.15
 
     # CDF / Pull-and-slide settings
     safety_margin_c_space: float = 0.0
@@ -94,39 +94,40 @@ def default_scene_queries() -> Dict[str, List[BenchmarkQuery]]:
     """Predefined query sets (different starts + task-space goals) per scene."""
     return {
         "scene_1": [
-            BenchmarkQuery("q1", (-2.0, -1.0), (-1.5, 2.8)),
-            BenchmarkQuery("q2", (-1.6, -1.2), (-1.5, 2.8)),
+            BenchmarkQuery("q1", (-2.0, -1.0), (-1.0, 3.0)),
+            # BenchmarkQuery("q2", (-1.6, -1.2), (-1.5, 2.8)),
         ],
         "scene_2": [
-            BenchmarkQuery("q1", (-2.4, 0.2), (-1.0, 3.3)),
-            BenchmarkQuery("q2", (-2.0, 0.0), (-1.0, 3.3)),
+            BenchmarkQuery("q1", (-1.1, 0.5), (0.0, 1.0)),
+            # BenchmarkQuery("q2", (-2.0, 0.0), (-1.0, 3.3)),
         ],
         "scene_3": [
-            BenchmarkQuery("q1", (-0.5, -2.5), (-0.2, 1.2)),
-            BenchmarkQuery("q2", (-0.8, -2.2), (-0.2, 1.2)),
+            BenchmarkQuery("q1", (-0.4, 0.4), (1.0, 3.2)),
+            # BenchmarkQuery("q2", (-0.8, -2.2), (-0.2, 1.2)),
         ],
         "scene_4": [
-            BenchmarkQuery("q1", (-2.0, 1.0), (-3.5, 1.5)),
-            BenchmarkQuery("q2", (-1.6, 1.2), (-3.5, 1.5)),
+            BenchmarkQuery("q1", (-0.4, 0.4), (1.0, 3.2)),
+            # BenchmarkQuery("q2", (-1.6, 1.2), (-3.5, 1.5)),
         ],
         "scene_5": [
-            BenchmarkQuery("q1", (-0.5, -2.5), (-0.2, 1.2)),
-            BenchmarkQuery("q2", (-0.2, -2.2), (-0.2, 1.2)),
+            BenchmarkQuery("q1", (-1.57, -1.57), (-2.0, 2.0)),
+            # BenchmarkQuery("q2", (-0.2, -2.2), (-0.2, 1.2)),
         ],
         "scene_6": [
             BenchmarkQuery("q1", (-math.pi / 12.0, 0.0), (3.864, 1.035)),
-            BenchmarkQuery("q2", (-0.10, -0.20), (3.864, 1.035)),
+            # BenchmarkQuery("q2", (-0.10, -0.20), (3.864, 1.035)),
         ],
     }
 
 
 # Light defaults for quick smoke testing.
 CONFIG = EvalConfig(
+    # planners=["rrt", "cdf", "pullandslide"],
     planners=["rrt", "cdf", "pullandslide"],
-    scenes=["scene_1"],
+    scenes=["scene_1", "scene_2", "scene_3", "scene_4", "scene_5", "scene_6"],
     scene_queries=default_scene_queries(),
     log_start_iter=50,
-    max_iters=200,
+    max_iters=1600,
     seed=1,
 )
 

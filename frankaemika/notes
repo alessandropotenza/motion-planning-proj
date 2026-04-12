@@ -1,0 +1,5 @@
+### Run this in the frank folder:
+
+python3 data_analysis_franka.py --csv outputs/eval_ee_goal_franka/run_*/detailed_log.csv
+python3 data_analysis_franka_scatter.py --csv outputs/eval_ee_goal_franka/run_*/detailed_log.csv
+python3 data_analysis_franka_tables.py --csv outputs/eval_ee_goal_franka/run_*/detailed_log.csv --latex

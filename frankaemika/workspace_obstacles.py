@@ -137,4 +137,55 @@ def build_demo_obstacles(scene: str = "demo_table", rng: np.random.Generator | N
             ),
             SphereObstacle(center=np.array([0.35, 0.35, 0.5]), radius=0.11),
         ]
+    if scene == "cluttered_gate":
+        # Broad clutter around the arm with a narrow but usable central passage.
+        return [
+            BoxObstacle(center=np.array([0.42, 0.00, 0.30]), half_extents=np.array([0.10, 0.30, 0.03])),
+            BoxObstacle(center=np.array([0.52, -0.25, 0.42]), half_extents=np.array([0.045, 0.055, 0.14])),
+            BoxObstacle(center=np.array([0.52, 0.25, 0.42]), half_extents=np.array([0.045, 0.055, 0.14])),
+            BoxObstacle(center=np.array([0.66, -0.05, 0.34]), half_extents=np.array([0.05, 0.10, 0.06])),
+            BoxObstacle(center=np.array([0.33, 0.22, 0.44]), half_extents=np.array([0.045, 0.06, 0.10])),
+            SphereObstacle(center=np.array([0.60, -0.30, 0.52]), radius=0.075),
+            SphereObstacle(center=np.array([0.60, 0.30, 0.52]), radius=0.075),
+            SphereObstacle(center=np.array([0.72, 0.10, 0.46]), radius=0.07),
+            SphereObstacle(center=np.array([0.30, -0.24, 0.50]), radius=0.07),
+            SphereObstacle(center=np.array([0.44, 0.00, 0.58]), radius=0.07),
+            SphereObstacle(center=np.array([0.50, 0.14, 0.64]), radius=0.06),
+            SphereObstacle(center=np.array([0.50, -0.14, 0.64]), radius=0.06),
+        ]
+    if scene == "cluttered_shelf":
+        # Multi-level shelf and side clutter spread across the workspace.
+        return [
+            BoxObstacle(center=np.array([0, 0.5, 0]), half_extents=np.array([1, 0.1, 1])),
+            BoxObstacle(center=np.array([0, -0.5, 0]), half_extents=np.array([1, 0.1, 1])),
+            # BoxObstacle(center=np.array([0.5, 0, 0]), half_extents=np.array([0.1, 1, 1])),
+            # BoxObstacle(center=np.array([-0.5, 0, 0]), half_extents=np.array([0.1, 1, 1])),
+            # BoxObstacle(center=np.array([0.52, 0.00, 0.39]), half_extents=np.array([0.18, 0.24, 0.03])),
+            # BoxObstacle(center=np.array([0.42, 0.00, 0.30]), half_extents=np.array([0.03, 0.24, 0.12])),
+            # BoxObstacle(center=np.array([0.62, 0.00, 0.30]), half_extents=np.array([0.03, 0.24, 0.12])),
+            # BoxObstacle(center=np.array([0.72, -0.16, 0.38]), half_extents=np.array([0.04, 0.08, 0.12])),
+            # BoxObstacle(center=np.array([0.32, 0.20, 0.36]), half_extents=np.array([0.04, 0.08, 0.10])),
+            # SphereObstacle(center=np.array([0.49, -0.20, 0.31]), radius=0.065),
+            # SphereObstacle(center=np.array([0.56, 0.20, 0.32]), radius=0.065),
+            # SphereObstacle(center=np.array([0.44, 0.00, 0.53]), radius=0.075),
+            # SphereObstacle(center=np.array([0.60, 0.02, 0.53]), radius=0.075),
+            # SphereObstacle(center=np.array([0.50, -0.30, 0.50]), radius=0.06),
+            # SphereObstacle(center=np.array([0.66, 0.28, 0.48]), radius=0.06),
+        ]
+    if scene == "cluttered_crossing":
+        # Interleaved obstacles all around the arm to force weaving paths.
+        return [
+            BoxObstacle(center=np.array([0.46, -0.16, 0.38]), half_extents=np.array([0.055, 0.06, 0.14])),
+            BoxObstacle(center=np.array([0.46, 0.16, 0.38]), half_extents=np.array([0.055, 0.06, 0.14])),
+            BoxObstacle(center=np.array([0.58, 0.00, 0.33]), half_extents=np.array([0.05, 0.13, 0.05])),
+            BoxObstacle(center=np.array([0.36, 0.00, 0.33]), half_extents=np.array([0.05, 0.13, 0.05])),
+            BoxObstacle(center=np.array([0.66, 0.22, 0.42]), half_extents=np.array([0.04, 0.07, 0.12])),
+            BoxObstacle(center=np.array([0.30, -0.20, 0.42]), half_extents=np.array([0.04, 0.07, 0.12])),
+            SphereObstacle(center=np.array([0.54, -0.26, 0.48]), radius=0.075),
+            SphereObstacle(center=np.array([0.54, 0.26, 0.48]), radius=0.075),
+            SphereObstacle(center=np.array([0.42, 0.00, 0.56]), radius=0.08),
+            SphereObstacle(center=np.array([0.62, 0.00, 0.56]), radius=0.08),
+            SphereObstacle(center=np.array([0.72, -0.08, 0.52]), radius=0.065),
+            SphereObstacle(center=np.array([0.28, 0.08, 0.52]), radius=0.065),
+        ]
     raise ValueError(f"Unknown scene {scene}")

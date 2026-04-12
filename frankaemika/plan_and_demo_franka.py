@@ -185,10 +185,10 @@ def visualize_path_pybullet(
 
 def parse_args():
     ap = argparse.ArgumentParser(description="Franka RRT* / CDF-guided RRT* + optional PyBullet demo.")
-    ap.add_argument("--mode", choices=["vanilla", "cdf", "both"], default="both")
+    ap.add_argument("--mode", choices=["vanilla", "cdf", "both"], default="vanilla")
     ap.add_argument("--scene",choices=["demo_table", "sparse", "pillar_and_box"], type=str, default="demo_table")
     ap.add_argument("--seed", type=int, default=1)
-    ap.add_argument("--max-iters", type=int, default=4000)
+    ap.add_argument("--max-iters", type=int, default=800)
     ap.add_argument("--step-size", type=float, default=0.12)
     ap.add_argument("--goal-threshold", type=float, default=0.35)
     ap.add_argument("--goal-bias", type=float, default=0.06)
