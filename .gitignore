@@ -3,8 +3,9 @@
 # Large pretrained CDF dataset (download from project README / Google Drive; do not commit)
 frankaemika/data.pt
 
-**/__pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
+__pycache__/
+outputs*/
