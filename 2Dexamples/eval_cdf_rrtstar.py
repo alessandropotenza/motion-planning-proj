@@ -37,6 +37,7 @@ SCENE_START_GOAL: Dict[str, Tuple[np.ndarray, np.ndarray]] = {
     "scene_4": (np.array([-2.0,  1.0], dtype=np.float32), np.array([2.5,  0.5], dtype=np.float32)),
     # scene_5 — "Scattered Perimeter": five moderate perimeter obstacles.
     "scene_5": (np.array([-0.5, -2.5], dtype=np.float32), np.array([0.5,  2.5], dtype=np.float32)),
+    # "scene_6": (np.array([-0.5, -2.5], dtype=np.float32), np.array([0.5,  2.5], dtype=np.float32)),
 }
 
 # Task-space EE goals aligned to the joint-space goals above (same target region,
@@ -51,6 +52,7 @@ SCENE_START_EE_GOAL: Dict[str, Tuple[np.ndarray, np.ndarray]] = {
     "scene_4": (np.array([-2.0,  1.0], dtype=np.float32), np.array([-3.5, 1.5], dtype=np.float32)),
     #   scene_5 goal q=[0.5, 2.5] → EE ≈ (-0.22, 1.24); start q=[-0.5, -2.5]
     "scene_5": (np.array([-0.5, -2.5], dtype=np.float32), np.array([-0.2, 1.2], dtype=np.float32)),
+    #   scene_6 goal q=[0.5, 2.5] → EE ≈ (-0.22, 1.24); start q=[-0.5, -2.5]
 }
 
 
@@ -64,7 +66,7 @@ def parse_args():
     parser.add_argument("--max-iters", type=int, default=2500)
     parser.add_argument(
         "--scene",
-        choices=["scene_1", "scene_2", "scene_3", "scene_4", "scene_5", "both", "all"],
+        choices=["scene_1", "scene_2", "scene_3", "scene_4", "scene_5", "scene_6", "both", "all"],
         default="both",
     )
 

@@ -17,11 +17,15 @@ import torch
 from cdf import CDF2D
 from mlp import MLPRegression  # Needed for torch.load() of model.pth
 from rrt_star_2d import make_scene
+from nn_cdf import inference
 
 
 SAFETY_MARGIN_TASK_SPACE = 0.1
-SAFETY_MARGIN_C_SPACE = 0.2
+# SAFETY_MARGIN_C_SPACE = 0.2
+SAFETY_MARGIN_C_SPACE = 0.0
 SOFTMIN_BETA = 50.0
+
+GRADIENT_FACTOR = 1.0  # Multiplier for CDF gradient in sampling bias (ablation)
 
 CUR_PATH = os.path.dirname(os.path.realpath(__file__))
 SCENE_START_GOAL: Dict[str, Tuple[np.ndarray, np.ndarray]] = {
@@ -33,6 +37,7 @@ SCENE_START_GOAL: Dict[str, Tuple[np.ndarray, np.ndarray]] = {
     "scene_4": (np.array([-2.0,  1.0], dtype=np.float32), np.array([2.5,  0.5], dtype=np.float32)),
     # scene_5 — "Scattered Perimeter": five moderate perimeter obstacles.
     "scene_5": (np.array([-0.5, -2.5], dtype=np.float32), np.array([0.5,  2.5], dtype=np.float32)),
+    "scene_6": (np.array([0.0, 0.0], dtype=np.float32), np.array([0, 3], dtype=np.float32)),
 }
 
 StepCallback = Callable[[Dict[str, Any]], None]
@@ -411,6 +416,155 @@ class RRTStarBase:
 class Vanilla_RRTStar(RRTStarBase):
     pass
 
+class Sampling_Bias_RRTStar(RRTStarBase):
+    """RRT* with sampling bias towards the goal region, but no CDF-based projection or edge validation."""
+    def __init__(
+        self,
+        cdf: CDF2D,
+        obj_list,
+        q_min: np.ndarray,
+        q_max: np.ndarray,
+        step_size: float = 0.25,
+        goal_threshold: float = 0.25,
+        goal_bias: float = 0.10,
+        neighbor_radius: float = 0.5,
+        edge_resolution: float = 0.05,
+        pull_gradient_factor: float = GRADIENT_FACTOR,
+        push_gradient_factor: float = GRADIENT_FACTOR,
+        ee_model_path: Optional[str] = None,
+        wb_model_path: Optional[str] = None,
+    ) -> None:
+        super().__init__(
+            cdf=cdf,
+            obj_list=obj_list,
+            q_min=q_min,
+            q_max=q_max,
+            step_size=step_size,
+            goal_threshold=goal_threshold,
+            goal_bias=goal_bias,
+            neighbor_radius=neighbor_radius,
+            edge_resolution=edge_resolution,
+        )
+        self.pull_gradient_factor = float(pull_gradient_factor)
+        self.push_gradient_factor = float(push_gradient_factor)
+        if ee_model_path is None:
+            ee_model_path = os.path.join(CUR_PATH, "model_ee.pth")
+        self.net_ee = torch.load(ee_model_path, map_location=self.device, weights_only=False)
+        self.net_ee.eval()
+        self.net_ee.requires_grad_(False)
+        if wb_model_path is None:
+            wb_model_path = os.path.join(CUR_PATH, "model_wb.pth")
+        self.net_wb = torch.load(wb_model_path, map_location=self.device, weights_only=False)
+        self.net_wb.eval()
+        self.net_wb.requires_grad_(False)
+
+        obstacle_points = []
+        samples = 100
+        for obs in obj_list:
+            points = obs.sample_surface(samples)
+            obstacle_points.append(points)
+        self.obstacle_points = torch.cat(obstacle_points, dim=0)
+
+    def sample_target(self, goal: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+        if rng.random() < self.goal_bias:
+            return goal.copy()
+        uniform_sample = rng.uniform(self.q_min, self.q_max).astype(np.float32)
+        
+        ### Nudge end effector toward goal
+        d, grad = self.get_ee_cdf_data(uniform_sample, goal)
+        pull_nudge = self.step_size * grad
+        
+        ### Nudge whole body away from objects
+        d, grad = self.get_wb_cdf_data(uniform_sample, self.obstacle_points)
+        if self.is_state_collision_free(uniform_sample):
+            pass
+            # if d < self.step_size:  # Only apply bias if we're within a certain distance of obstacles
+                # push_nudge = - self.push_gradient_factor * grad
+            # else:
+                # push_nudge = np.zeros_like(grad)
+        else:
+            grad = -grad  # If we're in collision, flip the gradient to push outward
+        push_nudge = - self.step_size * grad
+
+        biased_sample = uniform_sample + pull_nudge + push_nudge
+        return biased_sample
+
+    def get_ee_cdf_data(
+        self, q: np.ndarray, p_goal: np.ndarray
+    ) -> Tuple[float, np.ndarray]:
+        """Single-oracle EE CDF: input [p_goal | q] -> (dist, unit_grad_wrt_q)."""
+        q_t = (
+            torch.tensor(q, dtype=torch.float32, device=self.device)
+            .unsqueeze(0)
+            .requires_grad_(True)
+        )
+        p_t = torch.tensor(p_goal, dtype=torch.float32, device=self.device).unsqueeze(0)
+        net_input = torch.cat([p_t, q_t], dim=1)
+        dist = self.net_ee(net_input).squeeze()
+        grad = torch.autograd.grad(dist, q_t, retain_graph=False, create_graph=False)[0].squeeze(0)
+        return float(dist.item()), safe_normalize(grad.detach().cpu().numpy()).astype(np.float32)
+
+    def get_wb_cdf_data(
+        self, q: np.ndarray, p_obj: torch.Tensor
+    ) -> Tuple[float, np.ndarray]:
+        """Single-oracle WB CDF: input [p_obj | q] -> (dist, unit_grad_wrt_q)."""
+        q = torch.Tensor([q]).to(self.device).requires_grad_(True)
+        c_dist, grad = inference(p_obj, q, self.net_wb)
+        c_dist_min, min_idx = c_dist.min(dim=0)
+
+        grad_min = grad[min_idx]
+        return c_dist_min.detach().cpu().numpy().item(), grad_min.detach().cpu().numpy().astype(np.float32)
+    
+class Sampling_Bias_RRTStar2(Sampling_Bias_RRTStar):
+    """Ablation of Sampling_Bias_RRTStar that follows EE gradient if sufficiently far from obstacles"""
+    def sample_target(self, goal: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+        if rng.random() < self.goal_bias:
+            return goal.copy()
+        sample = rng.uniform(self.q_min, self.q_max).astype(np.float32)
+
+        ### check for obstacle proximity        
+        d, grad = self.get_wb_cdf_data(sample, self.obstacle_points)
+        
+        if d > self.step_size and not self.is_state_collision_free(sample):
+            ### Nudge end effector toward goal
+            d, grad = self.get_ee_cdf_data(sample, goal)
+            pull_nudge = self.step_size * grad
+            sample = sample + pull_nudge
+
+        return sample
+    
+class Sampling_Bias_RRTStar3(Sampling_Bias_RRTStar):
+    """ If far from obstacle -> follow pull
+        If close to obstacle -> follow tangent to obstacle, prioritize pull direction
+    """
+    def sample_target(self, goal: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+        if rng.random() < self.goal_bias:
+            return goal.copy()
+        sample = rng.uniform(self.q_min, self.q_max).astype(np.float32)
+
+        ### check for obstacle proximity        
+        wb_d, wb_grad = self.get_wb_cdf_data(sample, self.obstacle_points)
+        ee_d, ee_grad = self.get_ee_cdf_data(sample, goal)
+        
+        collided = self.is_state_collision_free(sample)
+        if collided: return sample   # TODO DEBUG
+
+        if collided:
+            ### Project to surface
+            sample += wb_d * wb_grad
+            wb_grad = -wb_grad
+        if wb_d > self.step_size and not collided:
+            ### Nudge end effector toward goal
+            pull_nudge = -self.step_size * ee_grad
+            sample = sample + pull_nudge
+        else:
+            ### Nudge along object surface
+            v_perp = ee_grad - np.dot(ee_grad, wb_grad) * wb_grad
+            new_grad = v_perp / np.linalg.norm(v_perp)
+            nudge = -self.step_size * new_grad
+            sample = sample + nudge
+
+        return sample
 
 class CDF_RRTStar(RRTStarBase):
     """CDF-guided RRT* using one-step projection sampling.
@@ -1007,8 +1161,8 @@ def parse_args():
     parser = argparse.ArgumentParser(
         description="Run Vanilla or CDF-guided RRT* with optional live tree/sampling visualization."
     )
-    parser.add_argument("--planner", choices=["vanilla", "cdf"], default="cdf")
-    parser.add_argument("--scene", choices=["scene_1", "scene_2", "scene_3", "scene_4", "scene_5"], default="scene_1")
+    parser.add_argument("--planner", choices=["vanilla", "cdf", "sampling-bias", "sampling-bias2", "sampling-bias3"], default="cdf")
+    parser.add_argument("--scene", choices=["scene_1", "scene_2", "scene_3", "scene_4", "scene_5", "scene_6"], default="scene_1")
     parser.add_argument("--start", nargs=2, type=float, metavar=("Q1", "Q2"))
     parser.add_argument("--goal", nargs=2, type=float, metavar=("Q1", "Q2"))
 
@@ -1032,9 +1186,12 @@ def parse_args():
     parser.add_argument("--ee-goal-threshold", type=float, default=0.15,
                         help="EE distance threshold for task-space goal reaching.")
 
+    parser.add_argument("--no-talkback", action="store_true")
     parser.add_argument("--live-viz", action="store_true")
     parser.add_argument("--viz-update-every", type=int, default=1)
     parser.add_argument("--viz-pause-sec", type=float, default=0.001)
+
+    parser.add_argument("--save-path", type=str, default="figs")
     return parser.parse_args()
 
 
@@ -1146,7 +1303,7 @@ def main():
             **planner_kwargs,
         )
         _validate_query_points(planner, start, goal)
-    else:
+    elif args.planner == "cdf":
         if ee_mode:
             planner_name = "CDF_RRTStar_EE"
             goal = p_goal_task
@@ -1172,6 +1329,33 @@ def main():
                 **planner_kwargs,
             )
             _validate_query_points(planner, start, goal)
+    elif args.planner == "sampling-bias":
+        _, goal = _resolve_start_goal(args)
+        planner_name = "Sampling_Bias_RRTStar"
+        planner = Sampling_Bias_RRTStar(
+            cdf=cdf, obj_list=obj_list, q_min=q_min, q_max=q_max,
+            **planner_kwargs,
+        )
+        _validate_query_points(planner, start, goal)
+    elif args.planner == "sampling-bias2":
+        _, goal = _resolve_start_goal(args)
+        planner_name = "Sampling_Bias_RRTStar2"
+        planner = Sampling_Bias_RRTStar2(
+            cdf=cdf, obj_list=obj_list, q_min=q_min, q_max=q_max,
+            **planner_kwargs,
+        )
+        _validate_query_points(planner, start, goal)
+    elif args.planner == "sampling-bias3":
+        _, goal = _resolve_start_goal(args)
+        planner_name = "Sampling_Bias_RRTStar3"
+        planner = Sampling_Bias_RRTStar3(
+            cdf=cdf, obj_list=obj_list, q_min=q_min, q_max=q_max,
+            **planner_kwargs,
+        )
+        _validate_query_points(planner, start, goal)
+    else:
+        raise SystemExit(f"Error: Unknown planner '{args.planner}'.")
+
 
     callback = None
     if args.live_viz:
@@ -1234,11 +1418,25 @@ def main():
 
     plt.tight_layout()
     plt.ioff()
+    ### Save fig
+    from pathlib import Path
+    out_dir = Path(args.save_path) / args.scene / args.planner
+    out_dir.mkdir(parents=True, exist_ok=True)
+    file_path = out_dir / f"iters_{args.max_iters}.png"
+    print(f"Saving final tree visualization to {file_path} ...")
+    plt.savefig(file_path, dpi=300)
+    if args.no_talkback:
+        print("No-talkback mode: skipping plt.show() and closing figures.")
+        plt.close("all")
+        return
+
+    ### Show fig
     if _matplotlib_backend_is_interactive():
         plt.show()
     else:
         plt.show(block=False)
         plt.close("all")
+
 
 
 if __name__ == "__main__":

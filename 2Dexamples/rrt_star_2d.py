@@ -67,6 +67,18 @@ def make_scene(scene_name: str, device: torch.device):
             Circle(center=torch.tensor([ 3.0, -1.0]), radius=0.6, device=device),
             Circle(center=torch.tensor([-3.0, -1.0]), radius=0.6, device=device),
         ]
+    if scene_name == "scene_6":
+        # "Scattered Perimeter" — five moderate obstacles arranged around the
+        # workspace perimeter.  Each obstacle blocks a different arm reach direction,
+        # creating a multi-obstacle C-space challenge (~31% rejection rate).
+        return [
+            # Circle(center=torch.tensor([ 2.2,  0.0]), radius=0.1, device=device),
+            # Circle(center=torch.tensor([-2.0,  2.0]), radius=0.7, device=device),
+            # Circle(center=torch.tensor([ 0.0, -3.0]), radius=0.7, device=device),
+            Circle(center=torch.tensor([2.5 , 0.0]),  radius=0.3, device=device),
+            Circle(center=torch.tensor([3.0 , 0.0]),  radius=0.3, device=device),
+            Circle(center=torch.tensor([3.5 , 0.0]),  radius=0.3, device=device),
+        ]
     raise ValueError(f"Unknown scene: {scene_name}")
 
 

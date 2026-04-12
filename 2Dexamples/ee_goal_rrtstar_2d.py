@@ -18,8 +18,11 @@ from cdf import CDF2D
 from mlp import MLPRegression  # noqa: F401  # Needed when loading serialized MLP models.
 import robot_plot2D
 from rrt_star_2d import make_scene
+from nn_cdf import inference
 
+from pathlib import Path
 
+FIG_DIR = Path('figs')
 CUR_PATH = os.path.dirname(os.path.realpath(__file__))
 
 # Legacy scene defaults are in joint space. We keep them for start fallback and
@@ -30,6 +33,7 @@ SCENE_DEFAULT_Q: Dict[str, Tuple[np.ndarray, np.ndarray]] = {
     "scene_3": (np.array([-0.5, -2.5], dtype=np.float32), np.array([0.5, 2.5], dtype=np.float32)),
     "scene_4": (np.array([-2.0, 1.0], dtype=np.float32), np.array([2.5, 0.5], dtype=np.float32)),
     "scene_5": (np.array([-0.5, -2.5], dtype=np.float32), np.array([0.5, 2.5], dtype=np.float32)),
+    "scene_6": (np.array([-np.pi/12, 0], dtype=np.float32), np.array([np.pi/12, 0], dtype=np.float32)),
 }
 
 
@@ -360,7 +364,7 @@ class CDFEERRTStar(RRTStarBase):
         goal_bias: float = 0.10,
         neighbor_radius: float = 0.5,
         edge_resolution: float = 0.05,
-        safety_margin_c_space: float = 0.2,
+        safety_margin_c_space: float = 0.0,
         softmin_beta: float = 50.0,
         model_path: Optional[str] = None,
         ee_model_path: Optional[str] = None,
@@ -559,6 +563,171 @@ class CDFEERRTStar(RRTStarBase):
             "config_goal_marker": config_goal_marker,
             "ik_solutions": None,
         }
+    
+
+class PullAndSlide(RRTStarBase):
+    """
+    Goal check -> Is this q close in task space?
+    Sampling -> Go toward goal, but slide along obstacles
+    """
+    def __init__(
+        self,
+        cdf: CDF2D,
+        obj_list,
+        q_min: np.ndarray,
+        q_max: np.ndarray,
+        step_size: float = 0.25,
+        goal_threshold: float = 0.25,
+        goal_bias: float = 0.10,
+        neighbor_radius: float = 0.5,
+        edge_resolution: float = 0.05,
+        wb_model_path: Optional[str] = None,
+        ee_model_path: Optional[str] = None,
+        ee_goal_threshold: float = 0.15,
+    ) -> None:
+        super().__init__(
+            cdf=cdf,
+            obj_list=obj_list,
+            q_min=q_min,
+            q_max=q_max,
+            step_size=step_size,
+            goal_threshold=goal_threshold,
+            goal_bias=goal_bias,
+            neighbor_radius=neighbor_radius,
+            edge_resolution=edge_resolution,
+        )
+
+        self.ee_goal_threshold = float(ee_goal_threshold)
+
+        if wb_model_path is None:
+            wb_model_path = os.path.join(CUR_PATH, "model_wb.pth")
+        if ee_model_path is None:
+            ee_model_path = os.path.join(CUR_PATH, "model_ee.pth")
+
+        self.net_wb = torch.load(wb_model_path, map_location=self.device, weights_only=False)
+        self.net_wb.eval()
+        self.net_wb.requires_grad_(False)
+
+        self.net_ee = torch.load(ee_model_path, map_location=self.device, weights_only=False)
+        self.net_ee.eval()
+        self.net_ee.requires_grad_(False)
+
+        self.goal_task: Optional[np.ndarray] = None
+
+        obstacle_points = []
+        samples = 100
+        for obs in obj_list:
+            points = obs.sample_surface(samples)
+            obstacle_points.append(points)
+        self.obstacle_points = torch.cat(obstacle_points, dim=0)
+
+    def get_ee_cdf_data(self, q: np.ndarray) -> Tuple[float, np.ndarray]:
+        """Single-oracle EE CDF: input [p_goal | q] -> (dist, unit_grad_wrt_q)."""
+        q_t = (
+            torch.tensor(q, dtype=torch.float32, device=self.device)
+            .unsqueeze(0)
+            .requires_grad_(True)
+        )
+        p_t = torch.tensor(self.goal_task, dtype=torch.float32, device=self.device).unsqueeze(0)
+        net_input = torch.cat([p_t, q_t], dim=1)
+        dist = self.net_ee(net_input).squeeze()
+        grad = torch.autograd.grad(dist, q_t, retain_graph=False, create_graph=False)[0].squeeze(0)
+        return float(dist.item()), safe_normalize(grad.detach().cpu().numpy()).astype(np.float32)
+
+    def get_wb_cdf_data(self, q: np.ndarray) -> Tuple[float, np.ndarray]:
+        """Single-oracle WB CDF: input [p_obj | q] -> (dist, unit_grad_wrt_q)."""
+        q = torch.Tensor(q).to(self.device).requires_grad_(True).unsqueeze(0)
+        c_dist, grad = inference(self.obstacle_points, q, self.net_wb)
+        c_dist_min, min_idx = c_dist.min(dim=0)
+
+        grad_min = grad[min_idx]
+        return c_dist_min.detach().cpu().numpy().item(), grad_min.detach().cpu().numpy().astype(np.float32)
+
+    def _is_near_goal(self, q_new: np.ndarray, goal: np.ndarray) -> bool:
+        ee = fk_end_effector(self.cdf, q_new)
+        return euclidean(ee, self.goal_task) <= self.ee_goal_threshold
+
+    def _make_goal_connection(
+        self,
+        new_idx: int,
+        nodes: List[Node],
+        goal: np.ndarray,
+        goal_idx: Optional[int],
+        rewires: int,
+    ) -> Tuple[Optional[int], int]:
+        # The new node itself satisfies the task-space goal condition.
+        goal_cost = nodes[new_idx].cost
+        if goal_idx is None:
+            goal_idx = new_idx
+        elif goal_cost < nodes[goal_idx].cost:
+            goal_idx = new_idx
+            rewires += 1
+        return goal_idx, rewires
+
+    def sample_target(self, goal: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+        q_sample = rng.uniform(self.q_min, self.q_max).astype(np.float32)    
+
+        ee_d, ee_grad = self.get_ee_cdf_data(q_sample)
+        ### Try to connect directly to the goal sometimes
+        if rng.random() < self.goal_bias or ee_d < self.goal_threshold:
+            for i in range(2):
+                q_sample = q_sample - ee_d * ee_grad
+                ee_d, ee_grad = self.get_ee_cdf_data(q_sample)
+            q_sample = q_sample - ee_d * ee_grad
+                
+            # Goal-biased EE projection: random q -> project onto EE-goal manifold.
+            q = self.clamp_to_bounds(q_sample)
+            return q
+        
+        ### Half the time, just give a uniform sample
+        # if rng.random() < 0.5:
+        #     return q
+
+        wb_d, wb_grad = self.get_wb_cdf_data(q_sample)
+        ee_d, ee_grad = self.get_ee_cdf_data(q_sample)
+        
+        collided = not self.is_state_collision_free(q_sample)
+
+        if collided:
+            ### Project to surface
+            q_sample -= wb_d * wb_grad
+            # wb_grad = -wb_grad
+        if wb_d > self.step_size and not collided:
+            ### Nudge end effector toward goal
+            pull_nudge = -self.step_size * ee_grad
+            q_sample = q_sample + pull_nudge
+        else:
+            ### Nudge along object surface
+            v_perp = ee_grad - np.dot(ee_grad, wb_grad) * wb_grad
+            new_grad = v_perp / np.linalg.norm(v_perp)
+            nudge = -self.step_size * new_grad
+            q_sample = q_sample + nudge
+
+        return q_sample
+
+    def solve(
+        self,
+        start_q: np.ndarray,
+        goal_task: np.ndarray,
+        max_iters: int,
+        seed: int,
+    ) -> dict:
+        self.goal_task = np.asarray(goal_task, dtype=np.float32).reshape(2)
+        dummy_goal = np.asarray(start_q, dtype=np.float32).reshape(2).copy()
+        nodes, path, stats = self.plan(start_q=start_q, goal=dummy_goal, max_iters=max_iters, seed=seed)
+
+        # For CDF planner, C-space goal marker is the final path configuration.
+        config_goal_marker = None
+        if path is not None and len(path) > 0:
+            config_goal_marker = path[-1].copy()
+
+        return {
+            "nodes": nodes,
+            "path": path,
+            "stats": stats,
+            "config_goal_marker": config_goal_marker,
+            "ik_solutions": None,
+        }
 
 
 def print_stats(planner_name: str, stats: dict, path: Optional[np.ndarray]) -> None:
@@ -591,6 +760,7 @@ def plot_configuration_space(
     config_goal_marker: Optional[np.ndarray],
     path: Optional[np.ndarray],
     title: str,
+    file_path = None,
 ) -> None:
     fig, ax = plt.subplots(figsize=(9, 8))
     cdf.plot_cdf(ax, obj_list)
@@ -627,6 +797,8 @@ def plot_configuration_space(
     ax.set_title(title)
     ax.legend(loc="upper right", fontsize=9)
     fig.tight_layout()
+    if file_path is not None:
+        fig.savefig(file_path)
 
 
 def plot_task_space(
@@ -636,6 +808,7 @@ def plot_task_space(
     goal_task: np.ndarray,
     path_q: Optional[np.ndarray],
     title: str,
+    file_path = None
 ) -> None:
     fig, ax = plt.subplots(figsize=(9, 8))
     cdf.plot_objects(ax, obj_list)
@@ -685,6 +858,10 @@ def plot_task_space(
     ax.set_title(title)
     ax.legend(loc="upper right", fontsize=9)
     fig.tight_layout()
+    if file_path is not None:
+        fig.savefig(file_path)
+
+
 
 
 def parse_args():
@@ -692,28 +869,31 @@ def parse_args():
         description="Simple 2D EE-goal RRT*: choose Vanilla (with internal IK) or CDF-guided mode."
     )
 
-    parser.add_argument("--planner", choices=["vanilla", "cdf"], default="cdf")
+    parser.add_argument("--planner", choices=["vanilla", "cdf", "bias"], default="cdf")
     parser.add_argument(
         "--scene",
-        choices=["scene_1", "scene_2", "scene_3", "scene_4", "scene_5"],
+        choices=["scene_1", "scene_2", "scene_3", "scene_4", "scene_5", "scene_6"],
         default="scene_1",
     )
     parser.add_argument("--start", nargs=2, type=float, metavar=("Q1", "Q2"))
     parser.add_argument("--goal-task", nargs=2, type=float, metavar=("X", "Y"))
 
     parser.add_argument("--seed", type=int, default=1)
-    parser.add_argument("--max-iters", type=int, default=2500)
+    parser.add_argument("--max-iters", type=int, default=250)
     parser.add_argument("--step-size", type=float, default=0.25)
     parser.add_argument("--goal-threshold", type=float, default=0.25)
     parser.add_argument("--goal-bias", type=float, default=0.10)
     parser.add_argument("--neighbor-radius", type=float, default=0.5)
     parser.add_argument("--edge-resolution", type=float, default=0.05)
 
-    parser.add_argument("--safety-margin-c-space", type=float, default=0.2)
+    parser.add_argument("--safety-margin-c-space", type=float, default=0.0)
     parser.add_argument("--softmin-beta", type=float, default=50.0)
-    parser.add_argument("--model-path", type=str, default=None)
+    parser.add_argument("--wb-model-path", type=str, default=None)
     parser.add_argument("--ee-model-path", type=str, default=None)
-    parser.add_argument("--ee-goal-threshold", type=float, default=0.15)
+    parser.add_argument("--ee-goal-threshold", type=float, default=0.30)
+    # parser.add_argument("--ee-goal-threshold", type=float, default=0.15)
+
+    parser.add_argument("--no-talkback", action="store_true")
 
     return parser.parse_args()
 
@@ -775,13 +955,21 @@ def main() -> None:
     if args.planner == "vanilla":
         planner_name = "VanillaEERRTStar"
         planner = VanillaEERRTStar(**planner_kwargs)
-    else:
+    elif args.planner == "cdf":
         planner_name = "CDFEERRTStar"
         planner = CDFEERRTStar(
             **planner_kwargs,
             safety_margin_c_space=args.safety_margin_c_space,
             softmin_beta=args.softmin_beta,
-            model_path=args.model_path,
+            model_path=args.wb_model_path,
+            ee_model_path=args.ee_model_path,
+            ee_goal_threshold=args.ee_goal_threshold,
+        )
+    elif args.planner == "bias":
+        planner_name = "PULLandSLIDE"
+        planner = PullAndSlide(
+            **planner_kwargs,
+            wb_model_path=args.wb_model_path,
             ee_model_path=args.ee_model_path,
             ee_goal_threshold=args.ee_goal_threshold,
         )
@@ -808,6 +996,10 @@ def main() -> None:
     path_q = result["path"]
     print_stats(planner_name, result["stats"], path_q)
 
+    ### File path save:
+    DIR = FIG_DIR / f"{args.scene}"
+    DIR.mkdir(parents=True, exist_ok=True)
+
     plot_configuration_space(
         cdf=cdf,
         obj_list=obj_list,
@@ -816,8 +1008,9 @@ def main() -> None:
         config_goal_marker=result["config_goal_marker"],
         path=path_q,
         title=f"{args.scene}: {planner_name} (Configuration Space)",
+        file_path=DIR / f"CSPACE_{planner_name}_{args.max_iters}",
     )
-
+    
     plot_task_space(
         cdf=cdf,
         obj_list=obj_list,
@@ -825,9 +1018,10 @@ def main() -> None:
         goal_task=goal_task,
         path_q=path_q,
         title=f"{args.scene}: {planner_name} (Task Space)",
+        file_path=DIR / f"TASK_{planner_name}_{args.max_iters}",
     )
-
-    plt.show()
+    if not args.no_talkback:
+        plt.show()
 
 
 if __name__ == "__main__":
