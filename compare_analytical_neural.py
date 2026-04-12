@@ -22,6 +22,10 @@ from tqdm import tqdm
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+model_name = 'model_ee.pth.10000ee'
+mode = "ee"  # "ee" = end effector only | "wb" = whole body
+# mode = "wb"
+
 train_cdf = Train_CDF(device)
 # train_cdf.train(input_dim=4, 
 #           hidden_dim=[256, 256, 128, 128, 128], 
@@ -35,8 +39,8 @@ train_cdf = Train_CDF(device)
 #       epochs=1000)
 
 
-
-net = torch.load(os.path.join(script_dir, 'model.pth'), weights_only=False)
+# model_name = 'model.pth'
+net = torch.load(os.path.join(script_dir, model_name), weights_only=False)
 net.eval()
 
 obstacles = [
@@ -147,19 +151,36 @@ for obs_idx, current_obstacle in enumerate(obstacles):
     cdf = CDF2D(device)
     current_obstacle_list = [current_obstacle]
     
-    q_proj_analytic = q_base.clone().requires_grad_(True)
-    for i in range(1000):
-        c_dist, grad = cdf.calculate_cdf(q_proj_analytic, current_obstacle_list, "online_computation", return_grad=True)
-        q_proj_analytic = q_proj_analytic - 0.1 * c_dist.unsqueeze(-1) * grad
-        q_proj_analytic = q_proj_analytic.detach().requires_grad_(True)  # Detach and re-enable gradients for next iteration
+    # Clear any cached zero-level sets to ensure fresh computation for each obstacle
+    if hasattr(cdf, 'q_0_level_set'):
+        delattr(cdf, 'q_0_level_set')
+    if hasattr(cdf, 'q_0_level_set_eef'):
+        delattr(cdf, 'q_0_level_set_eef')
+    
+    if mode == "ee":
+        # For end effector mode, compute distance field based on EE collisions in C-space
+        q_proj_analytic = q_base.clone().requires_grad_(True)
+        for i in range(1000):
+            c_dist, grad = cdf.calculate_cdf_eef(q_proj_analytic, current_obstacle_list, "online_computation", return_grad=True)
+            q_proj_analytic = q_proj_analytic - 0.1 * c_dist.unsqueeze(-1) * grad
+            q_proj_analytic = q_proj_analytic.detach().requires_grad_(True)
 
-    # Get analytical C-space field  
-    q_grid_with_grad = cdf.Q_grid.clone().requires_grad_(True)
-    d_result = cdf.calculate_cdf(q_grid_with_grad, current_obstacle_list, "online_computation", return_grad=True)
-    d_analytical = d_result[0].detach().cpu().numpy()
+        # Get analytical C-space field for EE
+        q_grid_with_grad = cdf.Q_grid.clone().requires_grad_(True)
+        d_analytical = cdf.calculate_cdf_eef(q_grid_with_grad, current_obstacle_list, "online_computation", return_grad=False).detach().cpu().numpy()
 
-    # ================================================================================
-    # CREATE COMBINED FIGURE FOR THIS OBSTACLE
+    else:  # mode == "wb"
+        # Original whole body approach
+        q_proj_analytic = q_base.clone().requires_grad_(True)
+        for i in range(1000):
+            c_dist, grad = cdf.calculate_cdf(q_proj_analytic, current_obstacle_list, "online_computation", return_grad=True)
+            q_proj_analytic = q_proj_analytic - 0.1 * c_dist.unsqueeze(-1) * grad
+            q_proj_analytic = q_proj_analytic.detach().requires_grad_(True)
+
+        # Get analytical C-space field  
+        q_grid_with_grad = cdf.Q_grid.clone().requires_grad_(True)
+        d_analytical = cdf.calculate_cdf(q_grid_with_grad, current_obstacle_list, "online_computation", return_grad=False).detach().cpu().numpy()
+
     # ================================================================================
     fig = plt.figure(figsize=(20, 14))
     gs = gridspec.GridSpec(3, 3, figure=fig, hspace=0.35, wspace=0.3)
@@ -194,15 +215,16 @@ for obs_idx, current_obstacle in enumerate(obstacles):
     ax3 = fig.add_subplot(gs[0, 2])
     contour3 = ax3.contourf(cdf.q0, cdf.q1, d_analytical.reshape(cdf.nbData, cdf.nbData), levels=15, cmap='RdYlBu_r')
     ax3.contour(cdf.q0, cdf.q1, d_analytical.reshape(cdf.nbData, cdf.nbData), levels=[0], linewidths=3, colors='black', alpha=0.8)
+    plt.colorbar(contour3, ax=ax3)
+    
     ax3.scatter(q_proj_analytic[:, 0].detach().cpu().numpy(), q_proj_analytic[:, 1].detach().cpu().numpy(), c='green', s=2, alpha=0.4, label='Analytical projections')
-    ax3.set_title('Analytical CDF (C-space)', fontsize=12, fontweight='bold')
+    ax3.set_title(f'Analytical CDF (C-space) - {mode.upper()}', fontsize=12, fontweight='bold')
     ax3.set_xlabel('q1', fontsize=10)
     ax3.set_ylabel('q2', fontsize=10)
     ax3.set_xlim(-np.pi, np.pi)
     ax3.set_ylim(-np.pi, np.pi)
     ax3.set_aspect('equal', 'box')
     ax3.legend(loc='upper right', fontsize=9)
-    plt.colorbar(contour3, ax=ax3)
 
     # Plot 4: Neural Network Task Space (row 2, cols 0-1)
     ax4 = fig.add_subplot(gs[1, 0:2])
@@ -253,11 +275,15 @@ for obs_idx, current_obstacle in enumerate(obstacles):
     # plt.colorbar(contour6, ax=ax6, label='Distance to obstacles')
 
     obstacle_center = current_obstacle.center.cpu().numpy()
-    plt.suptitle(f'Obstacle {obs_idx + 1}: Center=({obstacle_center[0]:.2f}, {obstacle_center[1]:.2f})', fontsize=16, fontweight='bold', y=0.995)
+    mode_label = "End Effector" if mode == "ee" else "Whole Body"
+    plt.suptitle(f'Obstacle {obs_idx + 1}: Center=({obstacle_center[0]:.2f}, {obstacle_center[1]:.2f}) - Mode: {mode_label}', fontsize=16, fontweight='bold', y=0.995)
     plt.tight_layout()
 
     # Save the figure for this obstacle
-    output_path = f'figs/comparison_obstacle_{obs_idx:03d}.png'
+    from pathlib import Path
+    out_dir = Path('figs/comparison')
+    out_dir.mkdir(parents=True, exist_ok=True)
+    output_path = out_dir / f'{obs_idx:03d}.png'
     plt.savefig(output_path, dpi=150, bbox_inches='tight')
     print(f"✓ Saved comparison plot to {output_path}")
     plt.close()
