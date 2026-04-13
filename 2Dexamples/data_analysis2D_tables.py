@@ -19,7 +19,8 @@ from typing import Any, Dict, Iterable, List, Sequence, Tuple
 import numpy as np
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-DEFAULT_CSV = SCRIPT_DIR / "outputs" / "eval_ee_goal_rrtstar" / "run_20260412_052039" / "detailed_log.csv"
+DEFAULT_CSV = "/home/joshua/Packages/mp_proj2/2Dexamples/outputs/eval_ee_goal_rrtstar/run_20260412_211811/detailed_log.csv"
+
 
 # Final-budget rows only (matches eval write_planner_summaries filter).
 CHECKPOINT_EVENTS = frozenset({"checkpoint", "checkpoint_first_path"})
@@ -27,14 +28,51 @@ CHECKPOINT_EVENTS = frozenset({"checkpoint", "checkpoint_first_path"})
 # Scatter / trajectory rows (subset used for time vs cost curves).
 SCATTER_EVENTS = frozenset({"checkpoint", "checkpoint_first_path", "first_path"})
 
-PLANNERS_ORDER: Tuple[str, ...] = ("rrt", "cdf", "pullandslide")
+PLANNERS_ORDER: Tuple[str, ...] = ("rrt", "pullandslide")
 
-# Short names for LaTeX tables (avoid long planner names in narrow columns).
+# Short names for LaTeX tables and CSV "planner" column.
 PLANNER_LATEX_SHORT: Dict[str, str] = {
-    "rrt": "Vanilla",
-    "cdf": "CDF",
-    "pullandslide": "Pull-and-slide",
+    "rrt": "RRT*",
+    "pullandslide": "CDF-RRT*",
 }
+
+EXPECTED_SCENES: Tuple[str, ...] = ("scene_3", "scene_5", "scene_6")
+SCENE_DISPLAY: Dict[str, str] = {
+    "scene_3": "Scene A",
+    "scene_5": "Scene B",
+    "scene_6": "Scene C",
+}
+
+
+def filter_analysis_rows(rows: Iterable[dict]) -> List[dict]:
+    allowed_pl = set(PLANNERS_ORDER)
+    out: List[dict] = []
+    for r in rows:
+        sc = (r.get("scene") or "").strip()
+        pl = (r.get("planner") or "").strip().lower()
+        if sc in SCENE_DISPLAY and pl in allowed_pl:
+            out.append(r)
+    return out
+
+
+def sort_expected_scenes(scenes: Iterable[str]) -> List[str]:
+    ss = set(scenes)
+    return [s for s in EXPECTED_SCENES if s in ss]
+
+
+def scene_display_name(scene: str) -> str:
+    return SCENE_DISPLAY.get(scene, scene)
+
+
+def row_scene_order_key(scene: str) -> int:
+    if scene in SCENE_DISPLAY:
+        return EXPECTED_SCENES.index(scene)
+    return 999
+
+
+def planner_display_name(planner: str) -> str:
+    p = planner.strip().lower()
+    return PLANNER_LATEX_SHORT.get(p, planner)
 
 AGG_FLOAT_FIELDS: Tuple[str, ...] = (
     "planning_time_sec",
@@ -116,7 +154,7 @@ def load_scatter_style_rows(csv_path: Path) -> List[dict]:
 
 def scenes_from_scatter_rows(rows: Sequence[dict]) -> List[str]:
     s = {(r.get("scene") or "").strip() for r in rows if (r.get("scene") or "").strip()}
-    return sorted(s, key=_natural_scene_key)
+    return sort_expected_scenes(s)
 
 
 def rows_at_iteration_budget(
@@ -254,7 +292,7 @@ def fmt_latex_success(rate: float) -> str:
 def iter_scene_planner_aggregates(rows_at_budget: List[dict]) -> List[Tuple[str, str, Dict[str, Any]]]:
     """(scene, planner, aggregate dict) in stable order."""
     buckets = group_key_scene_planner(rows_at_budget)
-    scenes = sorted({k[0] for k in buckets}, key=_natural_scene_key)
+    scenes = sort_expected_scenes({k[0] for k in buckets})
     out: List[Tuple[str, str, Dict[str, Any]]] = []
     for scene in scenes:
         for planner in sort_planners({k[1] for k in buckets if k[0] == scene}):
@@ -305,7 +343,7 @@ def write_latex_snippets(
     ]
     for scene, planner, agg in rows_data:
         t1.append(
-            f"{latex_escape(scene)} & {planner_latex_name(planner)} & "
+            f"{latex_escape(scene_display_name(scene))} & {planner_latex_name(planner)} & "
             f"{fmt_latex_success(agg['success_rate'])} & "
             f"{fmt_latex_float(agg['final_path_cost_mean'])} \\\\"
         )
@@ -322,7 +360,7 @@ def write_latex_snippets(
     ]
     for scene, planner, agg in rows_data:
         t2.append(
-            f"{latex_escape(scene)} & {planner_latex_name(planner)} & "
+            f"{latex_escape(scene_display_name(scene))} & {planner_latex_name(planner)} & "
             f"{fmt_latex_float(agg['planning_time_sec_mean'])} & "
             f"{fmt_latex_float(agg['ee_goal_error_mean'])} \\\\"
         )
@@ -339,7 +377,7 @@ def write_latex_snippets(
     ]
     for scene, planner, agg in rows_data:
         t3.append(
-            f"{latex_escape(scene)} & {planner_latex_name(planner)} & "
+            f"{latex_escape(scene_display_name(scene))} & {planner_latex_name(planner)} & "
             f"{fmt_latex_float(agg['nodes_total_mean'])} & "
             f"{fmt_latex_float(agg['rewires_mean'])} \\\\"
         )
@@ -394,7 +432,7 @@ def write_latex_pathcost_by_checkpoint(
             scenes.add(sc)
         if pl:
             planners_seen.add(pl)
-    scenes_sorted = sorted(scenes, key=_natural_scene_key)
+    scenes_sorted = sort_expected_scenes(scenes)
     planners = sort_planners(planners_seen)
     if not scenes_sorted or not planners:
         return []
@@ -439,7 +477,7 @@ def write_latex_pathcost_by_checkpoint(
         safe = scene.replace("/", "_")
         out_path = out_dir / f"latex_pathcost_checkpoints_{safe}.tex"
         out_path.write_text(
-            hdr + f"% Scene: {latex_escape(scene)}\n" + "\n".join(lines) + "\n",
+            hdr + f"% Scene: {latex_escape(scene_display_name(scene))}\n" + "\n".join(lines) + "\n",
             encoding="utf-8",
         )
         written.append(out_path)
@@ -452,7 +490,7 @@ def write_scene_planner_table(
     out_path: Path,
 ) -> None:
     buckets = group_key_scene_planner(rows_at_budget)
-    scenes = sorted({k[0] for k in buckets}, key=_natural_scene_key)
+    scenes = sort_expected_scenes({k[0] for k in buckets})
     fieldnames = [
         "iteration_budget",
         "planner",
@@ -479,8 +517,8 @@ def write_scene_planner_table(
                 agg = aggregate_rows(grp)
                 rec = {
                     "iteration_budget": iteration_budget,
-                    "planner": planner,
-                    "scene": scene,
+                    "planner": planner_display_name(planner),
+                    "scene": scene_display_name(scene),
                     **agg,
                 }
                 w.writerow(rec)
@@ -514,7 +552,7 @@ def write_per_query_table(rows_at_budget: List[dict], iteration_budget: int, out
     rows_sorted = sorted(
         rows_at_budget,
         key=lambda r: (
-            _natural_scene_key((r.get("scene") or "").strip()),
+            row_scene_order_key((r.get("scene") or "").strip()),
             (r.get("planner") or "").strip().lower(),
             (r.get("query_id") or "").strip(),
         ),
@@ -525,6 +563,8 @@ def write_per_query_table(rows_at_budget: List[dict], iteration_budget: int, out
         for r in rows_sorted:
             rec = {k: r.get(k, "") for k in fieldnames}
             rec["iteration_budget"] = iteration_budget
+            rec["scene"] = scene_display_name((r.get("scene") or "").strip())
+            rec["planner"] = planner_display_name((r.get("planner") or "").strip())
             w.writerow(rec)
 
 
@@ -554,7 +594,7 @@ def write_first_path_table(rows: List[dict], out_path: Path) -> None:
     ]
     fp_rows.sort(
         key=lambda r: (
-            _natural_scene_key((r.get("scene") or "").strip()),
+            row_scene_order_key((r.get("scene") or "").strip()),
             (r.get("planner") or "").strip().lower(),
             (r.get("query_id") or "").strip(),
         )
@@ -564,7 +604,10 @@ def write_first_path_table(rows: List[dict], out_path: Path) -> None:
         w = csv.DictWriter(fp, fieldnames=fieldnames, extrasaction="ignore")
         w.writeheader()
         for r in fp_rows:
-            w.writerow({k: r.get(k, "") for k in fieldnames})
+            row_out = {k: r.get(k, "") for k in fieldnames}
+            row_out["scene"] = scene_display_name((r.get("scene") or "").strip())
+            row_out["planner"] = planner_display_name((r.get("planner") or "").strip())
+            w.writerow(row_out)
 
 
 def write_scene_planner_all_checkpoints(
@@ -595,7 +638,7 @@ def write_scene_planner_all_checkpoints(
             if not slice_rows:
                 continue
             buckets = group_key_scene_planner(slice_rows)
-            scenes = sorted({k[0] for k in buckets}, key=_natural_scene_key)
+            scenes = sort_expected_scenes({k[0] for k in buckets})
             for scene in scenes:
                 for planner in sort_planners({k[1] for k in buckets if k[0] == scene}):
                     key = (scene, planner)
@@ -606,8 +649,8 @@ def write_scene_planner_all_checkpoints(
                     w.writerow(
                         {
                             "iteration_budget": cp,
-                            "planner": planner,
-                            "scene": scene,
+                            "planner": planner_display_name(planner),
+                            "scene": scene_display_name(scene),
                             **agg,
                         }
                     )
@@ -650,7 +693,7 @@ def write_per_query_all_checkpoints(
             rows_sorted = sorted(
                 slice_rows,
                 key=lambda r: (
-                    _natural_scene_key((r.get("scene") or "").strip()),
+                    row_scene_order_key((r.get("scene") or "").strip()),
                     (r.get("planner") or "").strip().lower(),
                     (r.get("query_id") or "").strip(),
                 ),
@@ -658,6 +701,8 @@ def write_per_query_all_checkpoints(
             for r in rows_sorted:
                 rec = {k: r.get(k, "") for k in fieldnames}
                 rec["iteration_budget"] = cp
+                rec["scene"] = scene_display_name((r.get("scene") or "").strip())
+                rec["planner"] = planner_display_name((r.get("planner") or "").strip())
                 w.writerow(rec)
 
 
@@ -699,7 +744,7 @@ def write_planner_global_all_checkpoints(
                 w.writerow(
                     {
                         "iteration_budget": cp,
-                        "planner": planner,
+                        "planner": planner_display_name(planner),
                         "num_scenes": len(scenes),
                         **agg,
                     }
@@ -761,7 +806,7 @@ def write_planner_global_table(rows_at_budget: List[dict], iteration_budget: int
             agg = aggregate_rows(grp)
             rec = {
                 "iteration_budget": iteration_budget,
-                "planner": planner,
+                "planner": planner_display_name(planner),
                 "num_scenes": len(scenes),
                 **agg,
             }
@@ -839,7 +884,7 @@ def main() -> None:
             raise SystemExit("No checkpoint rows found in CSV.")
         checkpoint = avail[-1]
 
-    all_rows = load_all_rows(csv_path)
+    all_rows = filter_analysis_rows(load_all_rows(csv_path))
     rows_final = rows_at_iteration_budget(all_rows, checkpoint, CHECKPOINT_EVENTS)
     if not rows_final:
         raise SystemExit(

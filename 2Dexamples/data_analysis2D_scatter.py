@@ -22,16 +22,34 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-DEFAULT_CSV = "/home/joshua/Packages/mp_proj2/2Dexamples/outputs/eval_ee_goal_rrtstar/run_20260412_052039/detailed_log.csv"
+DEFAULT_CSV = "/home/joshua/Packages/mp_proj2/2Dexamples/outputs/eval_ee_goal_rrtstar/run_20260412_211811/detailed_log.csv"
 
 # Rows to include (matches eval_ee_goal_rrtstar event types).
 EVENT_TYPES = frozenset({"checkpoint", "checkpoint_first_path", "first_path"})
 
-PLANNERS_ORDER: Tuple[str, ...] = ("rrt", "cdf", "pullandslide")
+PLANNERS_ORDER: Tuple[str, ...] = ("rrt", "pullandslide")
 DISPLAY_LABELS: Dict[str, str] = {
-    "rrt": "Vanilla EE-RRT*",
-    "cdf": "CDF EE-RRT*",
-    "pullandslide": "Pull-and-slide",
+    "rrt": "RRT*",
+    "pullandslide": "CDF-RRT*",
+}
+EXPECTED_SCENES: Tuple[str, ...] = ("scene_3", "scene_5", "scene_6")
+
+
+def filter_analysis_rows(rows: Sequence[dict]) -> List[dict]:
+    allowed = set(PLANNERS_ORDER)
+    out: List[dict] = []
+    for r in rows:
+        sc = (r.get("scene") or "").strip()
+        pl = (r.get("planner") or "").strip().lower()
+        if sc in EXPECTED_SCENES and pl in allowed:
+            out.append(r)
+    return out
+
+
+SCENE_DISPLAY: Dict[str, str] = {
+    "scene_3": "Scene A",
+    "scene_5": "Scene B",
+    "scene_6": "Scene C",
 }
 
 # Distinct markers per query_id so multiple benchmarks stay visible.
@@ -86,7 +104,7 @@ def scenes_in_rows(rows: Sequence[dict]) -> List[str]:
 
 def planners_in_rows(rows: Sequence[dict]) -> List[str]:
     seen = {(r.get("planner") or "").strip().lower() for r in rows if (r.get("planner") or "").strip()}
-    return [p for p in PLANNERS_ORDER if p in seen] + sorted(seen - set(PLANNERS_ORDER))
+    return [p for p in PLANNERS_ORDER if p in seen]
 
 
 def query_ids_in_scene(rows: Sequence[dict], scene: str) -> List[str]:
@@ -161,7 +179,8 @@ def plot_scene_x_vs_path_cost(
 
     ax.set_xlabel(xlabel)
     ax.set_ylabel("Path cost (final_path_cost)")
-    ttl = f"{scene}: {title_xy}"
+    scene_title = SCENE_DISPLAY.get(scene, scene)
+    ttl = f"{scene_title}: {title_xy}"
     if title_suffix:
         ttl = f"{ttl} — {title_suffix}"
     ax.set_title(ttl)
@@ -201,14 +220,20 @@ def main() -> None:
     if not csv_path.is_file():
         raise SystemExit(f"CSV not found: {csv_path}")
 
-    rows = load_rows(csv_path)
+    rows = filter_analysis_rows(load_rows(csv_path))
     if not rows:
-        raise SystemExit("No checkpoint / first-path rows found in CSV.")
+        raise SystemExit(
+            "No checkpoint / first-path rows for scenes scene_3, scene_5, scene_6 "
+            "and planners rrt, pullandslide."
+        )
 
     out_dir = args.output_dir.expanduser().resolve() if args.output_dir else csv_path.parent
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    scenes = scenes_in_rows(rows)
+    present = {s for s in scenes_in_rows(rows) if s in EXPECTED_SCENES}
+    scenes = [s for s in EXPECTED_SCENES if s in present]
+    if not scenes:
+        raise SystemExit("No data rows for scenes scene_3, scene_5, scene_6 after filtering.")
     planners = planners_in_rows(rows)
     suffix = csv_path.parent.name
 

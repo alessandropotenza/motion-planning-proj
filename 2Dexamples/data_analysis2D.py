@@ -21,14 +21,32 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-DEFAULT_CSV = "/home/joshua/Packages/mp_proj2/2Dexamples/outputs/eval_ee_goal_rrtstar/run_20260412_052039/detailed_log.csv"
+DEFAULT_CSV = "/home/joshua/Packages/mp_proj2/2Dexamples/outputs/eval_ee_goal_rrtstar/run_20260412_211811/detailed_log.csv"
 
-PLANNERS: Tuple[str, ...] = ("rrt", "cdf", "pullandslide")
+
+# Analysis scope: vanilla + pull-and-slide only; scenes 3, 5, 6 (labeled A–C in plots).
+PLANNERS: Tuple[str, ...] = ("rrt", "pullandslide")
 DISPLAY_LABELS = {
-    "rrt": "Vanilla EE-RRT*",
-    "cdf": "CDF EE-RRT*",
-    "pullandslide": "Pull-and-slide",
+    "rrt": "RRT*",
+    "pullandslide": "CDF-RRT*",
 }
+EXPECTED_SCENES: Tuple[str, ...] = ("scene_3", "scene_5", "scene_6")
+SCENE_DISPLAY = {
+    "scene_3": "Scene A",
+    "scene_5": "Scene B",
+    "scene_6": "Scene C",
+}
+
+
+def filter_analysis_rows(rows: Iterable[dict]) -> List[dict]:
+    allowed_pl = set(PLANNERS)
+    out: List[dict] = []
+    for r in rows:
+        sc = (r.get("scene") or "").strip()
+        pl = (r.get("planner") or "").strip().lower()
+        if sc in SCENE_DISPLAY and pl in allowed_pl:
+            out.append(r)
+    return out
 
 
 def _natural_scene_key(scene: str) -> Tuple:
@@ -242,11 +260,12 @@ def main() -> None:
             raise SystemExit("No checkpoint rows found in CSV.")
         checkpoint = avail[-1]
 
-    rows = load_checkpoint_rows(csv_path, checkpoint)
+    rows = filter_analysis_rows(load_checkpoint_rows(csv_path, checkpoint))
     if not rows:
         raise SystemExit(
-            f"No checkpoint rows for iteration_budget={checkpoint}. "
-            f"Available: {avail}"
+            f"No checkpoint rows for iteration_budget={checkpoint} "
+            f"after filtering to scenes {EXPECTED_SCENES} and planners {PLANNERS}. "
+            f"Available checkpoints: {avail}"
         )
 
     out_dir = args.output_dir
@@ -260,24 +279,27 @@ def main() -> None:
 
     means_iter = mean_field_by_scene_planner(rows, "first_path_iteration")
     means_cost = mean_field_by_scene_planner(rows, "final_path_cost")
-    scenes = sorted(
-        {k[0] for k in means_iter} | {k[0] for k in means_cost},
-        key=_natural_scene_key,
-    )
-    values_iter, x_labels = build_bar_matrix(scenes, means_iter)
+    present = {k[0] for k in means_iter} | {k[0] for k in means_cost}
+    scenes = [s for s in EXPECTED_SCENES if s in present]
+    if not scenes:
+        raise SystemExit(
+            "No data for expected scenes (scene_3, scene_5, scene_6) and planners (rrt, pullandslide)."
+        )
+    x_scene_labels = [SCENE_DISPLAY[s] for s in scenes]
+    values_iter, _ = build_bar_matrix(scenes, means_iter)
     path_feasible = out_dir / f"first_feasible_iter_checkpoint_{checkpoint}.png"
     plot_grouped_planner_bars(
-        x_labels,
+        x_scene_labels + [ACROSS_SCENES_LABEL],
         values_iter,
         ylabel="Mean iterations to first feasible path",
         title=f"Iterations to first feasibility — checkpoint {checkpoint} — {suffix}",
         out_path=path_feasible,
     )
 
-    values_cost, x_labels_c = build_bar_matrix(scenes, means_cost)
+    values_cost, _ = build_bar_matrix(scenes, means_cost)
     path_cost = out_dir / f"final_path_cost_checkpoint_{checkpoint}.png"
     plot_grouped_planner_bars(
-        x_labels_c,
+        x_scene_labels + [ACROSS_SCENES_LABEL],
         values_cost,
         ylabel="Mean final path cost (at checkpoint)",
         title=f"Best path cost at checkpoint — {checkpoint} iters — {suffix}",

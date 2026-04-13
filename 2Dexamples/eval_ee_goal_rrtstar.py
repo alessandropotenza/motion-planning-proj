@@ -123,8 +123,8 @@ def default_scene_queries() -> Dict[str, List[BenchmarkQuery]]:
 # Light defaults for quick smoke testing.
 CONFIG = EvalConfig(
     # planners=["rrt", "cdf", "pullandslide"],
-    planners=["rrt", "cdf", "pullandslide"],
-    scenes=["scene_1", "scene_2", "scene_3", "scene_4", "scene_5", "scene_6"],
+    planners=["rrt", "pullandslide"],
+    scenes=["scene_3", "scene_5", "scene_6"],
     scene_queries=default_scene_queries(),
     log_start_iter=50,
     max_iters=1600,
