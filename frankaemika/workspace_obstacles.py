@@ -132,19 +132,19 @@ def build_demo_obstacles(scene: str = "demo_table", rng: np.random.Generator | N
     if scene == "sparse":
         return [
             BoxObstacle(
-                center=np.array([0.4, 0.0, 0.25], dtype=np.float64),
+                center=np.array([0.5, 0.0, 0.25], dtype=np.float64),
                 half_extents=np.array([0.05, 0.5, 0.05], dtype=np.float64),
             ),
             BoxObstacle(
-                center=np.array([0.4, 0.0, 0.75], dtype=np.float64),
+                center=np.array([0.5, 0.0, 0.75], dtype=np.float64),
                 half_extents=np.array([0.05, 0.5, 0.05], dtype=np.float64),
             ),
             BoxObstacle(
-                center=np.array([0.4, 0.25, 0.5], dtype=np.float64),
+                center=np.array([0.5, 0.25, 0.5], dtype=np.float64),
                 half_extents=np.array([0.05, 0.05, 0.5], dtype=np.float64),
             ),
             BoxObstacle(
-                center=np.array([0.4, -0.25, 0.5], dtype=np.float64),
+                center=np.array([0.5, -0.25, 0.5], dtype=np.float64),
                 half_extents=np.array([0.05, 0.05, 0.5], dtype=np.float64),
             ),
         ]

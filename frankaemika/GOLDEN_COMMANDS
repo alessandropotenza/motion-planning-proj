@@ -33,7 +33,20 @@ python ee_goal_rrtstar_franka.py --planner vanilla --scene demo_table --max-iter
 # path_waypoints:          0
 
 python ee_goal_rrtstar_franka.py --planner pullandslide --scene demo_table --max-iters 6000 --demo
-
+# === PullAndSlide (task-goal) ===
+# success:                 False
+# iterations:              6000
+# accepted_nodes:          4251
+# discarded_samples:       1749
+# rejection_rate:          0.2915
+# rewires:                 1
+# planning_time_sec:       907.1241
+# time_to_first_path_sec:  None
+# nodes_to_first_path:     None
+# final_path_cost:         None
+# path_waypoint_cost:      None
+# task_goal_error_m:       nan
+# path_waypoints:          0
 
 
 

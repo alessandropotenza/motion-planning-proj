@@ -793,7 +793,7 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--demo", action="store_true", help="Animate best successful plan in PyBullet.")
     ap.add_argument("--demo-hold-sec", type=float, default=0.0,
                     help="Seconds to keep PyBullet open after playback. <= 0 means keep open.")
-    ap.add_argument("--demo-start-hold-sec", type=float, default=2.0,
+    ap.add_argument("--demo-start-hold-sec", type=float, default=10.0,
                     help="Seconds to hold at start configuration before playback (0 to skip).")
     ap.add_argument("--device", type=str, default=None, help="cuda:0 or cpu (default auto)")
     ap.add_argument("--log-every", type=int, default=0, help="Print planner progress every N iterations.")
@@ -823,6 +823,8 @@ def main() -> None:
 
     obstacles = build_demo_obstacles(args.scene, np.random.default_rng(args.seed))
     checker = SphereArmCollisionChecker(obstacles, margin=0.02)
+    # from pin_fcl_collision import PinFclCollisionChecker
+    # checker = PinFclCollisionChecker(obstacles, margin=0.02)
 
     d_start_q, d_goal_task = default_start_and_goal_task(args.scene)
     start_q = np.asarray(args.start_q, dtype=np.float32).reshape(7) if args.start_q is not None else d_start_q

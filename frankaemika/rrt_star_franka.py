@@ -282,14 +282,11 @@ class RRTStarFrankaBase:
                 f"elapsed={elapsed:.1f}s",
                 flush=True,
             )
-
-        if log_every_iters and log_every_iters > 0:
-            print(
-                f"{log_prefix}planning: max_iters={max_iters}, log every {log_every_iters} iterations",
-                flush=True,
-            )
+        log_every_iters = 10
 
         for it in range(max_iters):
+            if it % log_every_iters == 0:
+                print(f"iter {it + 1}/{max_iters}  tree_nodes={len(nodes)}  rejected={rejected_samples}  rewires={rewires}", flush=True)
             q_target, sampling_info = self.sample_target_with_info(goal, rng)
             nearest_idx = self.nearest_index(nodes, q_target, goal_idx)
 
