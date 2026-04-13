@@ -119,15 +119,34 @@ def build_demo_obstacles(scene: str = "demo_table", rng: np.random.Generator | N
         # Horizontal plate the arm must reach over / around
         return [
             BoxObstacle(
-                center=np.array([0.45, 0.0, 0.35], dtype=np.float64),
-                half_extents=np.array([0.12, 0.35, 0.04], dtype=np.float64),
+                center=np.array([-0.45, 0.0, 0.35], dtype=np.float64),
+                half_extents=np.array([0.05, 1.0, 1.0], dtype=np.float64),
             ),
-            SphereObstacle(center=np.array([0.25, -0.35, 0.55], dtype=np.float64), radius=0.12),
+            BoxObstacle(
+                center=np.array([0.45, 0.0, 0.35], dtype=np.float64),
+                half_extents=np.array([0.1, 0.1, 0.5], dtype=np.float64),
+            ),
+            # SphereObstacle(center=np.array([0.25, -0.35, 0.55], dtype=np.float64), radius=0.12),
             SphereObstacle(center=np.array([0.55, 0.35, 0.45], dtype=np.float64), radius=0.10),
         ]
     if scene == "sparse":
         return [
-            SphereObstacle(center=np.array([0.5, 0.2, 0.4], dtype=np.float64), radius=0.15),
+            BoxObstacle(
+                center=np.array([0.4, 0.0, 0.25], dtype=np.float64),
+                half_extents=np.array([0.05, 0.5, 0.05], dtype=np.float64),
+            ),
+            BoxObstacle(
+                center=np.array([0.4, 0.0, 0.75], dtype=np.float64),
+                half_extents=np.array([0.05, 0.5, 0.05], dtype=np.float64),
+            ),
+            BoxObstacle(
+                center=np.array([0.4, 0.25, 0.5], dtype=np.float64),
+                half_extents=np.array([0.05, 0.05, 0.5], dtype=np.float64),
+            ),
+            BoxObstacle(
+                center=np.array([0.4, -0.25, 0.5], dtype=np.float64),
+                half_extents=np.array([0.05, 0.05, 0.5], dtype=np.float64),
+            ),
         ]
     if scene == "pillar_and_box":
         return [

@@ -37,8 +37,8 @@ EE_IMPORT_ERROR: Optional[Exception] = None
 try:
     from ee_goal_rrtstar_franka import (
         SCENE_CHOICES,
-        PullAndSlideFrankaRRTStar,
-        TaskGoalCDFFrankaRRTStar,
+        CDFEERRTStar,
+        PullAndSlide,
         default_start_and_goal_task,
         solve_task_goal_ik,
     )
@@ -104,8 +104,8 @@ def _make_default_config() -> EvalConfig:
         planners=["vanilla", "cdf", "pullandslide"],
         scenes=list(SCENE_CHOICES),
         scene_queries=_default_scene_queries(),
-        log_start_iter=50,
-        max_iters=800,
+        log_start_iter=100,
+        max_iters=3200,
         seed=1,
     )
 
@@ -147,7 +147,7 @@ def _make_vanilla(checker: SphereArmCollisionChecker, cfg: EvalConfig) -> Vanill
 
 
 def _make_cdf(checker, obstacles, device, cfg: EvalConfig):
-    return TaskGoalCDFFrankaRRTStar(
+    return CDFEERRTStar(
         checker=checker,
         obstacles=obstacles,
         device=device,
@@ -161,7 +161,7 @@ def _make_cdf(checker, obstacles, device, cfg: EvalConfig):
 
 
 def _make_pullandslide(checker, obstacles, device, cfg: EvalConfig):
-    return PullAndSlideFrankaRRTStar(
+    return PullAndSlide(
         checker=checker,
         obstacles=obstacles,
         device=device,
@@ -208,16 +208,18 @@ def run_case_with_cache(
                 )
             elif planner_name == "cdf":
                 planner = _make_cdf(checker, obstacles, device, cfg)
-                planner.set_goal_task(goal_task)
-                nodes, path_out, stats = planner.plan(
-                    start_q, start_q.copy(), max_iters=iter_budget, seed=cfg.seed,
+                result = planner.solve(
+                    start_q=start_q, goal_task=goal_task,
+                    max_iters=iter_budget, seed=cfg.seed,
                 )
+                nodes, path_out, stats = result["nodes"], result["path"], result["stats"]
             elif planner_name == "pullandslide":
                 planner = _make_pullandslide(checker, obstacles, device, cfg)
-                planner.set_goal_task(goal_task)
-                nodes, path_out, stats = planner.plan(
-                    start_q, start_q.copy(), max_iters=iter_budget, seed=cfg.seed,
+                result = planner.solve(
+                    start_q=start_q, goal_task=goal_task,
+                    max_iters=iter_budget, seed=cfg.seed,
                 )
+                nodes, path_out, stats = result["nodes"], result["path"], result["stats"]
             else:
                 raise ValueError(f"Unknown planner '{planner_name}'")
             snap = RunSnapshot(iter_budget, bool(stats["success"]), nodes, path_out, stats, None)

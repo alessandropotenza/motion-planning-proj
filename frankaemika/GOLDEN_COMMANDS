@@ -1,0 +1,55 @@
+# Franka tests:
+
+python ee_goal_rrtstar_franka.py --planner pullandslide --scene demo_table --max-iters 6000 --demo
+# === PullAndSlide (task-goal) ===
+# success:                 True
+# iterations:              6000
+# accepted_nodes:          3207
+# discarded_samples:       2793
+# rejection_rate:          0.4655
+# rewires:                 5
+# planning_time_sec:       181.3703
+# time_to_first_path_sec:  119.3562285900116
+# nodes_to_first_path:     2224
+# final_path_cost:         7.095702350139618
+# path_waypoint_cost:      7.095702171325684
+# task_goal_error_m:       0.0770
+# path_waypoints:          14
+
+python ee_goal_rrtstar_franka.py --planner vanilla --scene demo_table --max-iters 6000 --demo
+# === VanillaFrankaRRTStar (task-goal via IK) ===
+# success:                 False
+# iterations:              6000
+# accepted_nodes:          3627
+# discarded_samples:       2373
+# rejection_rate:          0.3955
+# rewires:                 2
+# planning_time_sec:       184.9310
+# time_to_first_path_sec:  None
+# nodes_to_first_path:     None
+# final_path_cost:         None
+# path_waypoint_cost:      None
+# task_goal_error_m:       nan
+# path_waypoints:          0
+
+python ee_goal_rrtstar_franka.py --planner pullandslide --scene demo_table --max-iters 6000 --demo
+
+
+
+
+
+python ee_goal_rrtstar_franka.py --planner vanilla --scene sparse --max-iters 6000 --demo
+# === VanillaFrankaRRTStar (task-goal via IK) ===
+# success:                 False
+# iterations:              6000
+# accepted_nodes:          4298
+# discarded_samples:       1702
+# rejection_rate:          0.2837
+# rewires:                 0
+# planning_time_sec:       236.4936
+# time_to_first_path_sec:  None
+# nodes_to_first_path:     None
+# final_path_cost:         None
+# path_waypoint_cost:      None
+# task_goal_error_m:       nan
+# path_waypoints:          0

@@ -32,9 +32,9 @@ class CDF:
         # # # uncomment these lines to process the generated data and train your own CDF
         # self.raw_data = np.load(os.path.join(CUR_PATH,'data.npy'),allow_pickle=True).item()
         # self.process_data(self.raw_data)
-        self.data_path = os.path.join(CUR_PATH,'data.pt') 
-        self.data = self.load_data(self.data_path)
-        self.len_data = len(self.data['k'])
+        # self.data_path = os.path.join(CUR_PATH,'data.pt') 
+        # self.data = self.load_data(self.data_path)
+        # self.len_data = len(self.data['k'])
 
         self.batch_x = 10
         self.batch_q = 100
